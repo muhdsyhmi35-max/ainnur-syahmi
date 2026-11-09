@@ -91,8 +91,7 @@ textarea { font: inherit; color: inherit; }
   width: 12px;
   height: 17px;
   margin-left: -6px;
-  animation: petal-fall var(--dur, 20s) cubic-bezier(0.28, 0.08, 0.42, 0.98) infinite;
-  will-change: transform, opacity;
+  animation: petal-fall var(--dur, 20s) linear infinite;
 }
 
 .scene-petal-inner {
@@ -102,10 +101,8 @@ textarea { font: inherit; color: inherit; }
   border-radius: 80% 0 65% 45% / 70% 10% 80% 35%;
   background:
     radial-gradient(circle at 32% 28%, #ffffff 0%, #fbf8f3 58%, #f0e8dc 100%);
-  box-shadow: 0 1px 5px rgba(90, 78, 64, 0.16);
   transform-origin: 50% 20%;
   animation: petal-flutter var(--flutter, 3.2s) ease-in-out infinite;
-  will-change: transform;
 }
 
 .scene-petal-small {
@@ -139,21 +136,8 @@ textarea { font: inherit; color: inherit; }
 
 /* Light flutter / tumble like a real petal */
 @keyframes petal-flutter {
-  0% {
-    transform: rotate(var(--turn, -12deg)) scale(1, 0.92) skewX(-4deg);
-  }
-  20% {
-    transform: rotate(calc(var(--turn, -12deg) + 26deg)) scale(0.86, 1) skewX(6deg);
-  }
-  45% {
-    transform: rotate(calc(var(--turn, -12deg) - 18deg)) scale(1, 0.88) skewX(-8deg);
-  }
-  70% {
-    transform: rotate(calc(var(--turn, -12deg) + 34deg)) scale(0.9, 1) skewX(5deg);
-  }
-  100% {
-    transform: rotate(var(--turn, -12deg)) scale(1, 0.92) skewX(-4deg);
-  }
+  0%, 100% { transform: rotate(var(--turn, -12deg)); }
+  50% { transform: rotate(calc(var(--turn, -12deg) + 24deg)); }
 }
 
 .sheet {
@@ -1206,20 +1190,6 @@ body.editor-open { overflow: hidden; }
 
 html.is-open { scroll-snap-type: y mandatory; }
 
-/* Softer paging on phones — mandatory snap feels too abrupt */
-@media (hover: none) and (pointer: coarse) {
-  html.is-open {
-    scroll-snap-type: y proximity;
-    scroll-behavior: auto; /* custom JS eases the move */
-  }
-  .scene {
-    scroll-snap-stop: normal;
-  }
-  .scene.is-in .line {
-    animation-duration: 1.35s;
-  }
-}
-
 .scene-opening {
   min-height: 100svh;
   display: flex;
@@ -2173,6 +2143,17 @@ html.will-open.envelope-open:not(.is-open) .continue {
   .corner-svg { width: 96px; height: 108px; }
   .corners-rich .edge-svg { width: 58px; height: 66px; }
   .scene-opening { padding-left: 4.8rem; padding-right: 4.8rem; }
+}
+
+/* Phones: lighter paint cost, keep normal snap scrolling */
+@media (max-width: 720px), (pointer: coarse) {
+  .sheet,
+  .contact-panel {
+    background-image: radial-gradient(ellipse at 50% 14%, rgba(255, 255, 255, 0.72), transparent 42%);
+  }
+  .scene-petal-inner { animation: none; transform: rotate(var(--turn, -12deg)); }
+  .scene-petal { animation-duration: 26s; }
+  html.is-open .corners:not(.corners-photo):not(.corners-quiet) { animation: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {

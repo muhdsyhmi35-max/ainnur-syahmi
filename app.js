@@ -71,7 +71,13 @@
 
   function sectionPetals(sceneId) {
     if (reduce || sceneId === "opening") return "";
-    var columns = [8, 16, 24, 78, 86, 94, 12, 88];
+    var mobile = false;
+    try {
+      mobile = window.matchMedia("(max-width: 720px), (pointer: coarse)").matches;
+    } catch (error) {
+      mobile = false;
+    }
+    var columns = mobile ? [12, 84, 20, 88] : [8, 16, 24, 78, 86, 94, 12, 88];
     var html = '<div class="scene-petals" aria-hidden="true">';
     var i;
     for (i = 0; i < columns.length; i += 1) {
@@ -1010,80 +1016,6 @@
     Array.prototype.forEach.call(scenes, function (scene) {
       if (!scene.classList.contains("scene-opening")) motionWatcher.observe(scene);
     });
-    if (!bindMotion.listening) {
-      bindMotion.listening = true;
-      bindSlowSectionSwipe();
-    }
-  }
-
-  function easeInOutCubic(t) {
-    return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
-  }
-
-  function animateScrollTo(top, duration) {
-    var start = window.scrollY || window.pageYOffset || 0;
-    var delta = top - start;
-    if (Math.abs(delta) < 2) return;
-    var t0 = performance.now();
-    function frame(now) {
-      var t = Math.min(1, (now - t0) / duration);
-      window.scrollTo(0, start + delta * easeInOutCubic(t));
-      if (t < 1) window.requestAnimationFrame(frame);
-    }
-    window.requestAnimationFrame(frame);
-  }
-
-  function nearestSceneIndex(scenes) {
-    var mid = window.innerHeight * 0.35;
-    var best = 0;
-    var bestDist = Infinity;
-    Array.prototype.forEach.call(scenes, function (scene, index) {
-      var dist = Math.abs(scene.getBoundingClientRect().top - mid);
-      if (dist < bestDist) {
-        bestDist = dist;
-        best = index;
-      }
-    });
-    return best;
-  }
-
-  function bindSlowSectionSwipe() {
-    if (reduce) return;
-    var coarse = false;
-    try {
-      coarse = window.matchMedia("(hover: none) and (pointer: coarse)").matches;
-    } catch (error) {
-      coarse = "ontouchstart" in window;
-    }
-    if (!coarse || bindSlowSectionSwipe.bound) return;
-    bindSlowSectionSwipe.bound = true;
-    var startY = 0;
-    var startX = 0;
-    var locking = false;
-    document.addEventListener("touchstart", function (event) {
-      if (!document.documentElement.classList.contains("is-open") || locking) return;
-      if (!event.touches || !event.touches.length) return;
-      startY = event.touches[0].clientY;
-      startX = event.touches[0].clientX;
-    }, { passive: true });
-    document.addEventListener("touchend", function (event) {
-      if (!document.documentElement.classList.contains("is-open") || locking) return;
-      if (!event.changedTouches || !event.changedTouches.length) return;
-      var endY = event.changedTouches[0].clientY;
-      var endX = event.changedTouches[0].clientX;
-      var dy = startY - endY;
-      var dx = endX - startX;
-      if (Math.abs(dy) < 56 || Math.abs(dy) < Math.abs(dx) * 1.2) return;
-      var scenes = root.querySelectorAll(".scene");
-      if (!scenes.length) return;
-      var index = nearestSceneIndex(scenes);
-      var next = dy > 0 ? Math.min(scenes.length - 1, index + 1) : Math.max(0, index - 1);
-      if (next === index) return;
-      locking = true;
-      var top = scenes[next].getBoundingClientRect().top + (window.scrollY || window.pageYOffset || 0);
-      animateScrollTo(top, 980);
-      window.setTimeout(function () { locking = false; }, 1050);
-    }, { passive: true });
   }
 
   function bindPhotos(invitation, wedding) {
