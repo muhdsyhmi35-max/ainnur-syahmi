@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Invitation admin</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Cormorant+Garamond:ital@1&family=Italianno&family=Manrope:wght@400;500;600&family=Marcellus&display=swap" rel="stylesheet">
+  <link rel="icon" href="../favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../styles.css">
+  <link rel="stylesheet" href="admin.css">
+</head>
+<body>
+  <main class="admin-gate" id="gate">
+    <form id="unlock-form" class="admin-card">
+      <h1>Invitation admin</h1>
+      <p>This page is not linked from the invitation. Guests do not see it.</p>
+      <label class="editor-field"><span>Password</span>
+        <input id="password" type="password" autocomplete="current-password" required>
+      </label>
+      <p class="form-error" id="unlock-error" role="alert" hidden></p>
+      <button class="button" type="submit">Unlock</button>
+    </form>
+  </main>
+  <div class="studio" id="studio" hidden>
+    <form id="editor" class="admin-form"></form>
+    <div class="preview-column">
+      <p class="preview-label">Live preview</p>
+      <iframe id="preview" title="Live preview of the invitation" src="/?preview=draft"></iframe>
+    </div>
+  </div>
+  <script src="../content.js"></script>
+  <script src="admin.js"></script>
+</body>
+</html>

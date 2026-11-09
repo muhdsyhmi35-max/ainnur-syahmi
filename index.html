@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#f7f4ef">
+  <meta name="color-scheme" content="light">
+  <meta name="description" content="A wedding invitation.">
+  <title>Wedding invitation</title>
+  <!--
+    Guest-facing wording lives in content.js.
+    Guests do not edit the card. Editing stays on /admin/.
+  -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Cormorant+Garamond:ital@1&family=Italianno&family=Manrope:wght@400;500;600&family=Marcellus&display=swap" rel="stylesheet">
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    (function () {
+      var reduce = false;
+      try {
+        reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      } catch (error) {
+        reduce = false;
+      }
+      document.documentElement.classList.add(reduce ? "reduce-motion" : "will-open");
+    })();
+  </script>
+</head>
+<body>
+  <main class="sheet" id="invitation"></main>
+  <noscript>
+    <p class="noscript">This invitation needs JavaScript to display the wording in content.js.</p>
+  </noscript>
+  <script src="content.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
