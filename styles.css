@@ -1206,6 +1206,23 @@ body.editor-open { overflow: hidden; }
 
 html.is-open { scroll-snap-type: y mandatory; }
 
+/* Softer paging on phones — mandatory snap feels too abrupt */
+@media (hover: none) and (pointer: coarse) {
+  html.is-open {
+    scroll-snap-type: y proximity;
+    scroll-behavior: auto; /* custom JS eases the move */
+  }
+  .scene {
+    scroll-snap-stop: normal;
+  }
+  .section {
+    transition: opacity 1.7s ease, transform 1.7s cubic-bezier(0.22, 0.61, 0.36, 1);
+  }
+  .scene.is-in .line {
+    animation-duration: 1.35s;
+  }
+}
+
 .scene-opening {
   min-height: 100svh;
   display: flex;
