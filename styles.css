@@ -1215,9 +1215,6 @@ html.is-open { scroll-snap-type: y mandatory; }
   .scene {
     scroll-snap-stop: normal;
   }
-  .section {
-    transition: opacity 1.7s ease, transform 1.7s cubic-bezier(0.22, 0.61, 0.36, 1);
-  }
   .scene.is-in .line {
     animation-duration: 1.35s;
   }
@@ -2064,9 +2061,9 @@ html.will-open.envelope-open:not(.is-open) .continue {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  transform: translateY(20px);
-  transition: opacity 1.15s ease, transform 1.15s cubic-bezier(0.22, 0.61, 0.36, 1);
+  /* Keep the section frame still — only inner lines animate */
+  opacity: 1;
+  transform: none;
 }
 
 .scene-reply { align-items: flex-start; }

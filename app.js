@@ -1012,16 +1012,6 @@
     });
     if (!bindMotion.listening) {
       bindMotion.listening = true;
-      window.addEventListener("scroll", function () {
-        var copies = document.querySelectorAll(".scene-copy");
-        Array.prototype.forEach.call(copies, function (copy) {
-          var parent = copy.parentElement;
-          if (!parent || parent.classList.contains("scene-opening")) return;
-          var rect = parent.getBoundingClientRect();
-          var shift = Math.max(-12, Math.min(12, rect.top / 50));
-          copy.style.transform = "translate3d(0," + shift.toFixed(1) + "px,0)";
-        });
-      }, { passive: true });
       bindSlowSectionSwipe();
     }
   }
