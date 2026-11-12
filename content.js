@@ -308,8 +308,8 @@ window.WEDDING = {
       },
       "twoLine": {
         "size": "100",
-        "spacing": "100",
         "letter": "100",
+        "spacing": "100",
         "x": "5",
         "y": "8",
         "font": "",

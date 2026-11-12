@@ -205,12 +205,15 @@
 
   function onSave(event) {
     event.preventDefault();
-    commitDraft(true);
-    var note = form.querySelector("#save-note");
-    if (note) {
+    var draft = commitDraft(true);
+    persistProjectContent(draft).then(function (saved) {
+      var note = form.querySelector("#save-note");
+      if (!note) return;
       note.hidden = false;
-      note.textContent = "Disimpan. PC sama: buka jemputan di tab ini (Ctrl+Shift+R). Telefon: Muat turun content.js dan ganti fail dalam folder projek.";
-    }
+      note.textContent = saved
+        ? "Disimpan ke pelayar + content.js projek. Buka jemputan (Ctrl+Shift+R), kemudian publish GitHub/Netlify."
+        : "Disimpan dalam pelayar ini. Untuk telefon/hosting: Muat turun content.js dan ganti fail dalam folder projek.";
+    });
   }
 
   function onReset() {
@@ -224,12 +227,33 @@
   function onDownload() {
     var draft = commitDraft(true);
     var merged = mergeForExport(draft);
-    var blob = new Blob(["window.WEDDING = " + JSON.stringify(merged, null, 2) + ";\n"], { type: "text/javascript" });
+    var text = "window.WEDDING = " + JSON.stringify(merged, null, 2) + ";\n";
+    persistProjectContent(merged);
+    var blob = new Blob([text], { type: "text/javascript" });
     var link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
     link.download = "content.js";
     link.click();
     URL.revokeObjectURL(link.href);
+  }
+
+  function persistProjectContent(draft) {
+    var merged = mergeForExport(draft || {});
+    var text = "window.WEDDING = " + JSON.stringify(merged, null, 2) + ";\n";
+    if (!/^https?:\/\/(127\.0\.0\.1|localhost)(:\d+)?\//i.test(window.location.href)) {
+      return Promise.resolve(false);
+    }
+    return fetch("/__save-content", {
+      method: "POST",
+      headers: { "Content-Type": "text/javascript; charset=utf-8" },
+      body: text
+    })
+      .then(function (res) {
+        return res.ok;
+      })
+      .catch(function () {
+        return false;
+      });
   }
 
   function sendPreview(draft) {
@@ -278,7 +302,7 @@
     form.innerHTML =
       "<h1>Admin jemputan</h1>" +
       '<p class="admin-note">Teks, fon, warna, dan kedudukan: klik sekali pada teks dalam pratonton di kanan. Seret untuk alih. Guna Salin / Tampal kotak teks untuk pendua dalam seksyen yang sama.</p>' +
-      '<p class="admin-note">Simpan = kekal dalam pelayar ini. Halaman tetamu PC sama: <a href="../?v=edit25i" target="_blank" rel="noopener">buka jemputan</a> (Ctrl+Shift+R). Telefon: Muat turun content.js.</p>' +
+      '<p class="admin-note">Simpan = tulis ke pelayar + fail content.js (localhost). Kemudian publish GitHub. Pratonton: <a href="../?v=edit25i" target="_blank" rel="noopener">buka jemputan</a> (Ctrl+Shift+R).</p>' +
       '<p class="admin-note" id="save-note" hidden></p>' +
       block("Pautan peta", [
         field("Label Google Maps", "venue.mapLabel", readText(wedding, "venue.mapLabel")),
