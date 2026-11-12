@@ -68,6 +68,8 @@
       applyType(wedding);
       window.requestAnimationFrame(function () {
         applyType(wedding);
+        bindSceneFit();
+        fitScenesToViewport();
       });
     });
   }
@@ -116,12 +118,14 @@
     /* Re-apply saved gaps after rotate / viewport changes */
     window.requestAnimationFrame(function () {
       applyType(currentWedding());
+      fitScenesToViewport();
     });
   });
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(function () {
       shieldNames();
       applyType(currentWedding());
+      fitScenesToViewport();
     });
   }
 
@@ -993,6 +997,7 @@
     /* Disabled: translating the scene made guest layout diverge from admin positions */
     clearSceneSeat();
     if (scene) scene.classList.add("is-tabbed");
+    fitScenesToViewport();
   }
 
   function clearSceneSeat() {
@@ -1002,6 +1007,7 @@
     document.querySelectorAll(".scene-copy, .text-box-layer, .widget-layer").forEach(function (el) {
       el.style.transform = "";
       el.style.transition = "";
+      el.style.transformOrigin = "";
     });
   }
 
@@ -1974,6 +1980,66 @@
     });
     try { localStorage.setItem("wedding-pos-reset-v24", "1"); } catch (error) {}
     return dirty || true;
+  }
+
+  function fitScenesToViewport() {
+    /* Admin edit keeps raw placement; guests scale each section to fit above the dock */
+    if (document.documentElement.classList.contains("is-field-edit")) return;
+    var dock = document.querySelector(".dock");
+    var dockTop = window.innerHeight - 72;
+    try {
+      if (dock) dockTop = dock.getBoundingClientRect().top;
+    } catch (error) {}
+    document.querySelectorAll(".scene").forEach(function (scene) {
+      var copy = scene.querySelector(".scene-copy");
+      if (!copy) return;
+      copy.style.transform = "";
+      copy.style.transformOrigin = "";
+      var sceneBox = scene.getBoundingClientRect();
+      /* Only fit sections currently on screen (or about to snap in) */
+      if (sceneBox.bottom < 40 || sceneBox.top > window.innerHeight - 40) return;
+      var limit = Math.min(sceneBox.bottom - 10, dockTop - 14);
+      var minT = Infinity;
+      var maxB = -Infinity;
+      var nodes = copy.querySelectorAll(
+        "[data-field], .line, .monogram, .script-name, .kicker, .date-block, .stack, .countdown, .place-links, .person-line, .user-text-box, .user-widget"
+      );
+      if (!nodes.length) nodes = [copy];
+      Array.prototype.forEach.call(nodes, function (el) {
+        var rect = el.getBoundingClientRect();
+        if (!rect.width && !rect.height) return;
+        if (rect.top < minT) minT = rect.top;
+        if (rect.bottom > maxB) maxB = rect.bottom;
+      });
+      if (!isFinite(minT) || !isFinite(maxB)) return;
+      var need = maxB - minT;
+      var available = limit - minT;
+      if (available < 140 || need <= available + 4) return;
+      var scale = Math.max(0.68, Math.min(1, available / need));
+      copy.style.transformOrigin = "top center";
+      copy.style.transform = "scale(" + scale + ")";
+    });
+  }
+
+  function bindSceneFit() {
+    if (bindSceneFit.ready) return;
+    bindSceneFit.ready = true;
+    var timer = 0;
+    function schedule() {
+      window.clearTimeout(timer);
+      timer = window.setTimeout(function () {
+        fitScenesToViewport();
+      }, 40);
+    }
+    window.addEventListener("scroll", schedule, { passive: true });
+    if (typeof IntersectionObserver === "function") {
+      var io = new IntersectionObserver(function () {
+        schedule();
+      }, { threshold: [0.2, 0.55, 0.9] });
+      document.querySelectorAll(".scene").forEach(function (scene) {
+        io.observe(scene);
+      });
+    }
   }
 
   function applyType(wedding) {
