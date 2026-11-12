@@ -32,7 +32,7 @@ body { background: var(--desk); }
 
 .studio {
   display: grid;
-  grid-template-columns: minmax(300px, 480px) minmax(320px, 1fr);
+  grid-template-columns: minmax(280px, 380px) minmax(360px, 1fr);
   gap: 1rem;
   align-items: start;
   padding: 1rem;
@@ -87,7 +87,9 @@ body { background: var(--desk); }
 
 .preview-column iframe {
   width: min(390px, 100%);
-  height: calc(100svh - 3.2rem);
+  /* Real phone frame so edit positions match the guest page */
+  height: min(844px, calc(100svh - 3.2rem));
+  aspect-ratio: 390 / 844;
   border: 0;
   border-radius: 28px;
   background: var(--paper);
@@ -210,5 +212,8 @@ body { background: var(--desk); }
   .studio { grid-template-columns: 1fr; }
   .admin-form { min-height: 0; max-height: none; }
   .preview-column { position: static; }
-  .preview-column iframe { height: 80svh; }
+  .preview-column iframe {
+    width: min(390px, 100%);
+    height: min(844px, 80svh);
+  }
 }

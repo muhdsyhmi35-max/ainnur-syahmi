@@ -13,7 +13,7 @@
   }
 
   if (!base || !root) {
-    if (root) root.textContent = "The invitation could not be read. Check content.js.";
+    if (root) root.textContent = "Jemputan tidak dapat dibaca. Semak content.js.";
     return;
   }
 
@@ -25,16 +25,23 @@
 
   function paint(wedding, keepOpen) {
     keptOpen = keepOpen || document.documentElement.classList.contains("is-open");
+    if (wedding.textBoxes && !Array.isArray(wedding.textBoxes)) wedding.textBoxes = [];
+    if (wedding.widgets && !Array.isArray(wedding.widgets)) wedding.widgets = [];
+    if (resetBrokenPositions(wedding)) {
+      try {
+        writeStore("wedding-card-draft", wedding);
+        writeStore("wedding-card-published", wedding);
+      } catch (error) {}
+    }
     document.title = wedding.partnerOne + " & " + wedding.partnerTwo;
     var description = document.querySelector('meta[name="description"]');
     if (description) {
       description.setAttribute(
         "content",
-        "You are invited to the wedding of " + wedding.partnerOne + " and " + wedding.partnerTwo + "."
+        "Anda dijemput ke walimatul urus " + wedding.partnerOne + " dan " + wedding.partnerTwo + "."
       );
     }
     root.innerHTML = renderCard(wedding);
-    applyType(wedding);
     startCountdown(wedding);
     shieldNames();
     bindMusic(wedding, root);
@@ -47,14 +54,49 @@
     bindGuestbook(root);
     bindPhotos(root, wedding);
     bindMotion();
+    bindFieldEdit();
     if (reduce || keptOpen) document.documentElement.classList.add("is-open");
     if (reduce) document.documentElement.classList.remove("will-open");
+    /* Apply sizes/positions after layout — zero-size scenes were corrupting x/y clamps */
+    window.requestAnimationFrame(function () {
+      applyType(wedding);
+      window.requestAnimationFrame(function () {
+        applyType(wedding);
+      });
+    });
   }
 
   window.addEventListener("message", function (event) {
-    if (!preview || event.origin !== window.location.origin) return;
-    if (!event.data || event.data.type !== "wedding-preview") return;
-    paint(mergeWedding(base, event.data.payload), true);
+    if (event.origin !== window.location.origin) return;
+    if (!event.data || typeof event.data !== "object") return;
+    if (event.data.type === "wedding-enable-edit") {
+      try { sessionStorage.setItem("wedding-admin-open", "yes"); } catch (error) {}
+      document.documentElement.classList.add("is-field-edit");
+      bindFieldEdit();
+      return;
+    }
+    if (!preview || event.data.type !== "wedding-preview") return;
+    var payload = event.data.payload;
+    if (payload && typeof payload === "object" && !Array.isArray(payload)) {
+      payload = syncDraftPayload(payload);
+      try {
+        writeStore("wedding-card-draft", payload);
+        writeStore("wedding-card-published", payload);
+      } catch (error) {}
+      paint(mergeWedding(base, payload), true);
+      return;
+    }
+    paint(currentWedding(), true);
+  });
+
+  window.addEventListener("storage", function (event) {
+    if (!event.key) return;
+    if (
+      event.key !== "wedding-card-draft" &&
+      event.key !== "wedding-card-published"
+    ) return;
+    /* Guest tab live-updates when admin saves in another tab */
+    paint(currentWedding(), true);
   });
 
   boot();
@@ -63,9 +105,28 @@
     document.fonts.ready.then(shieldNames);
   }
 
+  function syncDraftPayload(payload) {
+    var existing = readStore("wedding-card-draft") || readStore("wedding-card-published") || {};
+    if (!Array.isArray(payload.textBoxes) && Array.isArray(existing.textBoxes)) {
+      payload.textBoxes = existing.textBoxes;
+    }
+    if (!Array.isArray(payload.widgets) && Array.isArray(existing.widgets)) {
+      payload.widgets = existing.widgets;
+    }
+    if (!payload.textStyle && existing.textStyle) {
+      payload.textStyle = existing.textStyle;
+    } else if (payload.textStyle && existing.textStyle) {
+      payload.textStyle = mergeStyleTree(cloneTree(existing.textStyle), payload.textStyle);
+    }
+    return payload;
+  }
+
   function currentWedding() {
-    var extra = preview ? readStore("wedding-card-draft") : readStore("wedding-card-published");
-    if (!preview && !extra) extra = readStore("wedding-card-edits");
+    /* Guest + admin preview both read the same draft first */
+    var extra =
+      readStore("wedding-card-draft") ||
+      readStore("wedding-card-published") ||
+      readStore("wedding-card-edits");
     return mergeWedding(base, extra);
   }
 
@@ -129,7 +190,7 @@
       renderEnvelope(wedding) +
       '<div class="music-slot" id="music-slot"></div>' +
       scenes +
-      '<nav class="dock" aria-label="Invitation">' +
+      '<nav class="dock" aria-label="Jemputan">' +
       sectionLinks(wedding, true) +
       "</nav>" +
       contactSheet(wedding)
@@ -164,32 +225,148 @@
     return "";
   }
 
+  function renderTextBoxes(wedding, sceneId) {
+    var list = Array.isArray(wedding.textBoxes) ? wedding.textBoxes : [];
+    var boxes = list.filter(function (box) {
+      return box && box.scene === sceneId && box.id;
+    });
+    if (!boxes.length) return "";
+    /* In-flow so left / center / right align won't stack over other text */
+    return boxes.map(function (box) {
+      return (
+        '<p class="user-text-box line" data-field="textbox.' + esc(box.id) + '">' +
+        esc(box.text || "Teks baharu") +
+        "</p>"
+      );
+    }).join("");
+  }
+
+  function renderWidgets(wedding, sceneId) {
+    var list = Array.isArray(wedding.widgets) ? wedding.widgets : [];
+    var items = list.filter(function (item) {
+      if (!item || !item.id || item.scene !== sceneId || !item.type) return false;
+      /* Celebration already has native Maps / Waze / countdown — skip duplicates */
+      if (
+        sceneId === "celebration" &&
+        (item.type === "map" || item.type === "waze" || item.type === "countdown")
+      ) {
+        return false;
+      }
+      return true;
+    });
+    if (!items.length) return "";
+    return (
+      '<div class="widget-layer">' +
+      items.map(function (item) {
+        return renderWidgetItem(wedding, item);
+      }).join("") +
+      "</div>"
+    );
+  }
+
+  function renderWidgetItem(wedding, item) {
+    var id = esc(item.id);
+    var type = String(item.type || "");
+    if (type === "map") {
+      var map = safeUrl(wedding.venue && wedding.venue.mapUrl);
+      var mapLabel = (wedding.venue && wedding.venue.mapLabel) || "Google Maps";
+      if (!map) {
+        return '<p class="user-widget user-widget-link line" data-field="widget.' + id + '">' + esc(mapLabel) + "</p>";
+      }
+      return (
+        '<a class="user-widget user-widget-link text-link line" data-field="widget.' + id + '" href="' + esc(map) +
+        '" target="_blank" rel="noopener noreferrer">' + esc(mapLabel) + "</a>"
+      );
+    }
+    if (type === "waze") {
+      var waze = safeUrl(wedding.place && wedding.place.wazeUrl);
+      var wazeLabel = (wedding.place && wedding.place.wazeLabel) || "Waze";
+      if (!waze) {
+        return '<p class="user-widget user-widget-link line" data-field="widget.' + id + '">' + esc(wazeLabel) + "</p>";
+      }
+      return (
+        '<a class="user-widget user-widget-link text-link line" data-field="widget.' + id + '" href="' + esc(waze) +
+        '" target="_blank" rel="noopener noreferrer">' + esc(wazeLabel) + "</a>"
+      );
+    }
+    if (type === "countdown") {
+      return (
+        '<div class="user-widget user-widget-countdown line" data-field="widget.' + id + '">' +
+        countdownBlock(wedding, true) +
+        "</div>"
+      );
+    }
+    return "";
+  }
+
+  function withTextBoxes(html, wedding, sceneId) {
+    if (!html) return html;
+    var flowBoxes = renderTextBoxes(wedding, sceneId);
+    var widgets = renderWidgets(wedding, sceneId);
+    if (flowBoxes) {
+      /* Place custom text after the first block in scene-copy (under the heading) */
+      var copyMatch = html.match(/<div class="scene-copy[^"]*">/);
+      if (copyMatch) {
+        var start = copyMatch.index + copyMatch[0].length;
+        var afterFirst = html.indexOf("</", start);
+        if (afterFirst !== -1) {
+          var firstEnd = html.indexOf(">", afterFirst);
+          if (firstEnd !== -1) {
+            html = html.slice(0, firstEnd + 1) + flowBoxes + html.slice(firstEnd + 1);
+          } else {
+            html = html.slice(0, start) + flowBoxes + html.slice(start);
+          }
+        } else {
+          html = html.slice(0, start) + flowBoxes + html.slice(start);
+        }
+      } else {
+        html += flowBoxes;
+      }
+    }
+    if (!widgets) return html;
+    var sectionClose = html.lastIndexOf("</section>");
+    if (sectionClose === -1) return html + widgets;
+    return html.slice(0, sectionClose) + widgets + html.slice(sectionClose);
+  }
+
   function renderOpening(wedding) {
     var date = wedding.date;
-    return (
+    var open = wedding.opening || {};
+    var nameOne = open.nameOne || wedding.partnerOne;
+    var nameTwo = open.nameTwo || wedding.partnerTwo;
+    var amp = open.amp || "&";
+    /* Same HTML for admin + guest — no letter-split branch */
+    var nameOneHtml = esc(nameOne);
+    var nameTwoHtml = esc(nameTwo);
+    var ampHtml = esc(amp);
+    return withTextBoxes(
       '<section class="scene scene-opening" id="opening">' +
       corners("opening") +
       '<div class="opening-zoom">' +
       '<div class="scene-copy opening-copy">' +
       monogramMark(wedding, "opening-line t-mono") +
-      '<p class="kicker opening-line t-kicker" data-field="opening.kicker">' + esc(wedding.opening.kicker) + "</p>" +
+      '<p class="kicker opening-line t-kicker" data-field="opening.kicker">' + esc(open.kicker) + "</p>" +
       '<h1 class="opening-line t-name">' +
-      '<span class="script-name" data-field="partnerOne">' + letters(wedding.partnerOne, 2.25) + "</span>" +
-      '<span class="script-amp letter" style="animation-delay:2.25s" aria-hidden="true">&amp;</span>' +
+      '<span class="script-name" data-field="opening.nameOne">' + nameOneHtml + "</span>" +
+      '<span class="script-amp" data-field="opening.amp">' + ampHtml + "</span>" +
       '<span class="sr-only"> and </span>' +
-      '<span class="script-name" data-field="partnerTwo">' + letters(wedding.partnerTwo, 2.25) + "</span></h1>" +
+      '<span class="script-name" data-field="opening.nameTwo">' + nameTwoHtml + "</span></h1>" +
       '<div class="date-block opening-line t-date">' +
       '<p class="weekday" data-field="date.weekday">' + esc(date.weekday) + "</p>" +
-      '<p class="cover-date"><span data-field="date.day">' + esc(date.day) + "</span>.<span data-field=\"date.month\">" + esc(monthNumber(date.month) || date.month) + "</span>.<span data-field=\"date.year\">" + esc(date.year) + "</span></p>" +
+      '<p class="cover-date" data-field="opening.dateLine">' +
+      esc(open.dateLine || [date.day, date.month, date.year].filter(Boolean).join(".")) +
+      "</p>" +
       '<p class="clock" data-field="date.time">' + esc(date.time) + "</p></div>" +
       coverVerse(wedding) +
       '<button class="button continue" type="button" id="continue" data-field="opening.continueLabel">' + esc(wedding.opening.continueLabel) + "</button>" +
-      "</div></div></section>"
+      "</div></div></section>",
+      wedding,
+      "opening"
     );
   }
 
   function renderCouple(wedding) {
-    return (
+    return withTextBoxes(
       '<section class="scene scene-couple" id="couple">' +
       corners("couple") +
       sectionPetals("couple") +
@@ -197,12 +374,31 @@
       '<p class="kicker line" data-field="couple.kicker">' + esc(wedding.couple.kicker) + "</p>" +
       '<h2 class="script-name line" data-field="partnerOne">' + esc(wedding.partnerOne) + "</h2>" +
       '<p class="person-line line" data-field="couple.oneLine">' + esc(wedding.couple.oneLine) + "</p>" +
-      '<p class="script-amp line" aria-hidden="true">&amp;</p>' +
+      '<p class="script-amp line" data-field="couple.amp">' + esc((wedding.couple && wedding.couple.amp) || "&") + "</p>" +
       '<h2 class="script-name line" data-field="partnerTwo">' + esc(wedding.partnerTwo) + "</h2>" +
       '<p class="person-line line" data-field="couple.twoLine">' + esc(wedding.couple.twoLine) + "</p>" +
       sampleLine(wedding.couple.note, "couple.note") +
-      "</div></section>"
+      "</div></section>",
+      wedding,
+      "couple"
     );
+  }
+
+  function mapWazeLinks(wedding) {
+    var venue = wedding.venue || {};
+    var place = wedding.place || {};
+    var map = safeUrl(venue.mapUrl);
+    var waze = safeUrl(place.wazeUrl);
+    var links = "";
+    if (map) {
+      links += '<a class="text-link" data-field="venue.mapLabel" href="' + esc(map) + '" target="_blank" rel="noopener noreferrer">' +
+        esc(venue.mapLabel || "Google Maps") + '<span class="sr-only"> (dibuka dalam tab baharu)</span></a>';
+    }
+    if (waze) {
+      links += '<a class="text-link" data-field="place.wazeLabel" href="' + esc(waze) + '" target="_blank" rel="noopener noreferrer">' +
+        esc(place.wazeLabel || "Waze") + '<span class="sr-only"> (dibuka dalam tab baharu)</span></a>';
+    }
+    return links ? '<p class="place-links line">' + links + "</p>" : "";
   }
 
   function renderCelebration(wedding) {
@@ -211,7 +407,7 @@
       wedding.date.weekday + " " + wedding.date.day + " " + wedding.date.month + " " +
       wedding.date.year + " · " + wedding.date.time
     );
-    return (
+    return withTextBoxes(
       '<section class="scene scene-celebration section" id="celebration">' +
       corners("celebration") +
       sectionPetals("celebration") +
@@ -219,26 +415,20 @@
       '<h2 class="line" data-field="celebration.heading">' + esc(item.heading) + "</h2>" +
       '<p class="section-sub line" data-field="celebration.dateLine">' + esc(dateLine) + "</p>" +
       '<div class="stack">' + detailBlock(item.ceremony, "celebration.ceremony") + detailBlock(item.reception, "celebration.reception") + "</div>" +
-      '<p class="attire line"><span data-field="celebration.attire.label">' + esc(item.attire.label) + "</span> <span data-field=\"celebration.attire.text\">" + esc(item.attire.text) + "</span></p>" +
+      attireBlock(item.attire) +
+      '<div class="celebration-tools">' +
+      mapWazeLinks(wedding) +
+      countdownBlock(wedding) +
+      "</div>" +
       sampleLine(item.note, "celebration.note") +
-      "</div></section>"
+      "</div></section>",
+      wedding,
+      "celebration"
     );
   }
 
   function renderPlace(wedding) {
-    var venue = wedding.venue;
     var place = wedding.place;
-    var map = safeUrl(venue.mapUrl);
-    var waze = safeUrl(place.wazeUrl);
-    var links = "";
-    if (map) {
-      links += '<a class="text-link" data-field="venue.mapLabel" href="' + esc(map) + '" target="_blank" rel="noopener noreferrer">' +
-        esc(venue.mapLabel) + '<span class="sr-only"> (opens in a new tab)</span></a>';
-    }
-    if (waze) {
-      links += '<a class="text-link" data-field="place.wazeLabel" href="' + esc(waze) + '" target="_blank" rel="noopener noreferrer">' +
-        esc(place.wazeLabel) + '<span class="sr-only"> (opens in a new tab)</span></a>';
-    }
     var timeline = (place.timeline || []).map(function (item, index) {
       return (
         "<li><p class=\"timeline-time\" data-field=\"timeline." + index + ".time\">" + esc(item.time) + "</p>" +
@@ -246,27 +436,23 @@
         "<p class=\"timeline-detail\" data-field=\"timeline." + index + ".detail\">" + esc(item.detail) + "</p></li>"
       );
     }).join("");
-    return (
+    return withTextBoxes(
       '<section class="scene scene-place section" id="place">' +
       corners("place") +
       sectionPetals("place") +
       '<div class="scene-copy">' +
-      '<h2 class="line" data-field="place.heading">' + esc(place.heading) + "</h2>" +
-      '<p class="place-script line" data-field="venue.name">' + esc(venue.name) + "</p>" +
-      '<p class="place-street line" data-field="venue.street">' + esc(venue.street) + "</p>" +
-      sampleLine(place.note, "place.note") +
-      '<p class="place-links line">' + links + "</p>" +
-      countdownBlock(wedding) +
-      '<ol class="timeline line">' + timeline + "</ol>" +
+      (timeline ? '<ol class="timeline line">' + timeline + "</ol>" : "") +
       '<div class="photo-frame" id="photo-frame"></div>' +
-      '<p class="photo-placeholder" id="photo-placeholder" data-field="place.photoPlaceholder">' + esc(place.photoPlaceholder) + "</p>" +
-      "</div></section>"
+      '<p class="photo-placeholder" id="photo-placeholder" data-field="place.photoPlaceholder">' + esc(place.photoPlaceholder || "") + "</p>" +
+      "</div></section>",
+      wedding,
+      "place"
     );
   }
 
   function renderReply(wedding) {
     var rsvp = wedding.rsvp;
-    return (
+    return withTextBoxes(
       '<section class="scene scene-reply section" id="reply">' +
       corners("reply") +
       sectionPetals("reply") +
@@ -276,30 +462,32 @@
       sampleLine(rsvp.note, "rsvp.note") +
       '<form id="rsvp-form" novalidate>' +
       '<p class="form-error" id="rsvp-error" role="alert" hidden></p>' +
-      '<label class="field"><span>' + esc(rsvp.nameLabel) + "</span>" +
+      '<label class="field"><span data-field="rsvp.nameLabel">' + esc(rsvp.nameLabel) + "</span>" +
       '<input id="guest-name" name="name" type="text" autocomplete="name" maxlength="80" required placeholder="' +
-      esc(rsvp.namePlaceholder) + '"></label>' +
-      "<fieldset><legend>" + esc(rsvp.attendanceLabel) + "</legend>" +
+      esc(rsvp.namePlaceholder || "") + '" data-field="rsvp.namePlaceholder"></label>' +
+      '<fieldset><legend data-field="rsvp.attendanceLabel">' + esc(rsvp.attendanceLabel) + "</legend>" +
       '<div class="choices">' +
-      '<label class="choice"><input type="radio" name="attendance" value="yes"><span>' + esc(rsvp.acceptLabel) + "</span></label>" +
-      '<label class="choice"><input type="radio" name="attendance" value="no"><span>' + esc(rsvp.declineLabel) + "</span></label>" +
+      '<label class="choice"><input type="radio" name="attendance" value="yes"><span data-field="rsvp.acceptLabel">' + esc(rsvp.acceptLabel) + "</span></label>" +
+      '<label class="choice"><input type="radio" name="attendance" value="no"><span data-field="rsvp.declineLabel">' + esc(rsvp.declineLabel) + "</span></label>" +
       "</div></fieldset>" +
-      '<label class="field"><span>' + esc(rsvp.noteLabel) + "</span>" +
-      '<textarea id="guest-note" name="note" maxlength="500" placeholder="' + esc(rsvp.notePlaceholder) + '"></textarea></label>' +
-      '<button class="button" type="submit">' + esc(rsvp.submitLabel) + "</button>" +
-      '<p class="local-note">' + esc(rsvp.localNote) + "</p></form>" +
+      '<label class="field"><span data-field="rsvp.noteLabel">' + esc(rsvp.noteLabel) + "</span>" +
+      '<textarea id="guest-note" name="note" maxlength="500" placeholder="' + esc(rsvp.notePlaceholder || "") + '" data-field="rsvp.notePlaceholder"></textarea></label>' +
+      '<button class="button" type="submit" data-field="rsvp.submitLabel">' + esc(rsvp.submitLabel) + "</button>" +
+      '<p class="local-note" data-field="rsvp.localNote">' + esc(rsvp.localNote) + "</p></form>" +
       '<div class="confirm" id="rsvp-confirm" hidden>' +
-      '<p class="confirm-kicker">' + esc(rsvp.confirmedKicker) + "</p>" +
+      '<p class="confirm-kicker" data-field="rsvp.confirmedKicker">' + esc(rsvp.confirmedKicker) + "</p>" +
       '<p class="confirm-message" id="rsvp-message" tabindex="-1" role="status"></p>' +
       '<p class="echo" id="rsvp-echo" hidden></p>' +
-      '<button class="text-button" id="rsvp-edit" type="button">' + esc(rsvp.editLabel) + "</button></div>" +
-      "</div></section>"
+      '<button class="text-button" id="rsvp-edit" type="button" data-field="rsvp.editLabel">' + esc(rsvp.editLabel) + "</button></div>" +
+      "</div></section>",
+      wedding,
+      "reply"
     );
   }
 
   function renderGuestbook(wedding) {
     var book = wedding.guestbook;
-    return (
+    return withTextBoxes(
       '<section class="scene scene-wishes section" id="wishes">' +
       corners("wishes") +
       sectionPetals("wishes") +
@@ -308,26 +496,30 @@
       '<p class="section-sub line" data-field="guestbook.intro">' + esc(book.intro) + "</p>" +
       '<form id="guestbook-form" novalidate>' +
       '<p class="form-error" id="book-error" role="alert" hidden></p>' +
-      '<label class="field"><span>' + esc(book.nameLabel) + "</span>" +
-      '<input name="name" type="text" maxlength="80" autocomplete="name" placeholder="' + esc(book.namePlaceholder) + '"></label>' +
-      "<fieldset><legend>" + esc(book.attendanceLabel || "Will you attend?") + "</legend>" +
+      '<label class="field"><span data-field="guestbook.nameLabel">' + esc(book.nameLabel) + "</span>" +
+      '<input name="name" type="text" maxlength="80" autocomplete="name" placeholder="' + esc(book.namePlaceholder || "") + '" data-field="guestbook.namePlaceholder"></label>' +
+      '<fieldset><legend data-field="guestbook.attendanceLabel">' + esc(book.attendanceLabel || "Adakah anda akan hadir?") + "</legend>" +
       '<div class="choices">' +
-      '<label class="choice"><input type="radio" name="attendance" value="yes"><span>' +
-      esc(book.acceptLabel || "Joyfully accepts") + "</span></label>" +
-      '<label class="choice"><input type="radio" name="attendance" value="no"><span>' +
-      esc(book.declineLabel || "Regretfully declines") + "</span></label>" +
+      '<label class="choice"><input type="radio" name="attendance" value="yes"><span data-field="guestbook.acceptLabel">' +
+      esc(book.acceptLabel || "Hadir") + "</span></label>" +
+      '<label class="choice"><input type="radio" name="attendance" value="no"><span data-field="guestbook.declineLabel">' +
+      esc(book.declineLabel || "Tidak Hadir") + "</span></label>" +
       "</div></fieldset>" +
-      '<label class="field"><span>' + esc(book.messageLabel) + "</span>" +
-      '<textarea name="message" maxlength="400" placeholder="' + esc(book.messagePlaceholder) + '"></textarea></label>' +
-      '<button class="button" type="submit">' + esc(book.submitLabel) + "</button></form>" +
+      '<label class="field"><span data-field="guestbook.messageLabel">' + esc(book.messageLabel) + "</span>" +
+      '<textarea name="message" maxlength="400" placeholder="' + esc(book.messagePlaceholder || "") + '" data-field="guestbook.messagePlaceholder"></textarea></label>' +
+      '<button class="button" type="submit" data-field="guestbook.submitLabel">' + esc(book.submitLabel) + "</button></form>" +
       '<div class="wishes" id="wish-list" aria-live="polite"></div>' +
-      "</div></section>"
+      "</div></section>",
+      wedding,
+      "wishes"
     );
   }
 
   function renderClosing(wedding) {
-    var item = wedding.closing;
-    return (
+    var item = wedding.closing || {};
+    var signature = String(item.signature || "").trim() ||
+      (firstName(wedding.partnerOne) + " & " + firstName(wedding.partnerTwo));
+    return withTextBoxes(
       '<section class="scene scene-closing" id="closing">' +
       corners("closing") +
       sectionPetals("closing") +
@@ -339,8 +531,10 @@
       '<p data-field="closing.prayer">' + esc(item.prayer) + "</p></blockquote>" +
       '<p class="closing-sign line" data-field="closing.closing">' + esc(item.closing) + "</p>" +
       sampleLine(item.note, "closing.note") +
-      '<p class="signature line">' + esc(firstName(wedding.partnerOne) + " & " + firstName(wedding.partnerTwo)) + "</p>" +
-      "</div></section>"
+      '<p class="signature line" data-field="closing.signature">' + esc(signature) + "</p>" +
+      "</div></section>",
+      wedding,
+      "closing"
     );
   }
 
@@ -349,21 +543,44 @@
     return '<p class="sample-note line" data-field="' + esc(field) + '">' + esc(text) + "</p>";
   }
 
-  function detailBlock(item, field) {
+  function attireBlock(attire) {
+    attire = attire || {};
+    var label = String(attire.label || "").trim();
+    var text = String(attire.text || "").trim();
+    if (!label && !text) return "";
     return (
-      '<article class="detail line"><h3 data-field="' + field + '.label">' + esc(item.label) + "</h3>" +
-      '<p class="detail-time" data-field="' + field + '.time">' + esc(item.time) + "</p>" +
-      '<p class="detail-place" data-field="' + field + '.place">' + esc(item.place) + "</p>" +
-      '<p class="detail-copy" data-field="' + field + '.detail">' + esc(item.detail) + "</p></article>"
+      '<p class="attire line">' +
+      (label ? '<span data-field="celebration.attire.label">' + esc(label) + "</span>" : "") +
+      (text ? ' <span data-field="celebration.attire.text">' + esc(text) + "</span>" : "") +
+      "</p>"
     );
+  }
+
+  function detailBlock(item, field) {
+    item = item || {};
+    var parts = "";
+    if (String(item.label || "").trim()) {
+      parts += '<h3 data-field="' + field + '.label">' + esc(item.label) + "</h3>";
+    }
+    if (String(item.time || "").trim()) {
+      parts += '<p class="detail-time" data-field="' + field + '.time">' + esc(item.time) + "</p>";
+    }
+    if (String(item.place || "").trim()) {
+      parts += '<p class="detail-place" data-field="' + field + '.place">' + esc(item.place) + "</p>";
+    }
+    if (String(item.detail || "").trim()) {
+      parts += '<p class="detail-copy" data-field="' + field + '.detail">' + esc(item.detail) + "</p>";
+    }
+    if (!parts) return "";
+    return '<article class="detail line">' + parts + "</article>";
   }
 
   function sectionLinks(wedding, withIcons) {
     var nav = wedding.nav || {};
     return (
-      linkItem("#contact", nav.contact || "Contact", "contact", withIcons) +
-      linkItem("#place", nav.location || "Location", "place", withIcons) +
-      linkItem("#wishes", nav.wishes || "Wishes", "wish", withIcons)
+      linkItem("#contact", nav.contact || "Hubungi", "contact", withIcons) +
+      linkItem("#celebration", nav.location || "Lokasi", "place", withIcons) +
+      linkItem("#wishes", nav.wishes || "Ucapan", "wish", withIcons)
     );
   }
 
@@ -373,21 +590,23 @@
     return '<a href="' + href + '"' + tip + ">" + (withIcons ? dockIcon(icon) : "") + '<span data-field="' + field + '">' + esc(label) + "</span></a>";
   }
 
-  function countdownBlock(wedding) {
-    var label = (wedding.countdown && wedding.countdown.label) || "Ketibaan Pengantin";
-    var arrival = (wedding.countdown && wedding.countdown.arrival) || (wedding.date && wedding.date.time) || "";
-    var done = (wedding.countdown && wedding.countdown.done) || "Alhamdulillah, hari bahagia telah tiba.";
+  function countdownBlock(wedding, asClone) {
+    var cd = wedding.countdown || {};
+    var done = cd.done || "Alhamdulillah, hari bahagia telah tiba.";
+    var fieldAttr = asClone
+      ? function () { return ""; }
+      : function (path) { return ' data-field="' + path + '"'; };
     return (
-      '<div class="countdown line">' +
-      '<p class="countdown-heading" data-field="countdown.label">' + esc(label) + "</p>" +
-      (arrival ? '<p class="countdown-arrival" data-field="date.time">' + esc(arrival) + "</p>" : "") +
-      '<div class="countdown-grid" id="countdown-figures" aria-live="polite">' +
-      '<div class="cd-col"><span class="cd-num" data-cd="days">00</span><span class="cd-lab">Hari</span></div>' +
-      '<div class="cd-col"><span class="cd-num" data-cd="hours">00</span><span class="cd-lab">Jam</span></div>' +
-      '<div class="cd-col"><span class="cd-num" data-cd="mins">00</span><span class="cd-lab">Minit</span></div>' +
-      '<div class="cd-col"><span class="cd-num" data-cd="secs">00</span><span class="cd-lab">Saat</span></div>' +
+      '<div class="countdown' + (asClone ? "" : " line") + '"' +
+      (asClone ? "" : ' data-field="countdown.box"') +
+      ">" +
+      '<div class="countdown-grid" aria-live="polite">' +
+      '<div class="cd-col"><span class="cd-num" data-cd="days">00</span><span class="cd-lab"' + fieldAttr("countdown.daysLabel") + ">" + esc(cd.daysLabel || "Hari") + "</span></div>" +
+      '<div class="cd-col"><span class="cd-num" data-cd="hours">00</span><span class="cd-lab"' + fieldAttr("countdown.hoursLabel") + ">" + esc(cd.hoursLabel || "Jam") + "</span></div>" +
+      '<div class="cd-col"><span class="cd-num" data-cd="mins">00</span><span class="cd-lab"' + fieldAttr("countdown.minsLabel") + ">" + esc(cd.minsLabel || "Minit") + "</span></div>" +
+      '<div class="cd-col"><span class="cd-num" data-cd="secs">00</span><span class="cd-lab"' + fieldAttr("countdown.secsLabel") + ">" + esc(cd.secsLabel || "Saat") + "</span></div>" +
       "</div>" +
-      '<p class="countdown-done" id="countdown-done" hidden data-field="countdown.done">' + esc(done) + "</p>" +
+      '<p class="countdown-done"' + (asClone ? "" : ' id="countdown-done"') + " hidden" + fieldAttr("countdown.done") + ">" + esc(done) + "</p>" +
       "</div>"
     );
   }
@@ -645,7 +864,7 @@
     if (people.length) return people;
     return [{
       role: String(contact.role || "").trim(),
-      name: String(contact.name || wedding.partnerOne || "Contact").trim(),
+      name: String(contact.name || wedding.partnerOne || "Hubungi").trim(),
       phone: String(contact.phone || "").trim()
     }];
   }
@@ -663,7 +882,7 @@
       return (
         '<article class="contact-person">' +
         role +
-        '<h2' + (index === 0 ? ' id="contact-person"' : "") + ' data-field="contact.people.' + index + '.name">' + esc(person.name || "Contact") + "</h2>" +
+        '<h2' + (index === 0 ? ' id="contact-person"' : "") + ' data-field="contact.people.' + index + '.name">' + esc(person.name || "Hubungi") + "</h2>" +
         phone +
         "</article>"
       );
@@ -673,7 +892,7 @@
       '<button class="contact-shade" type="button" aria-label="Close contact"></button>' +
       '<div class="contact-panel" role="dialog" aria-modal="true" aria-labelledby="contact-person">' +
       '<button class="contact-close" type="button" aria-label="Close">Close</button>' +
-      '<p class="contact-kicker" data-field="nav.contact">' + esc((wedding.nav && wedding.nav.contact) || "Contact") + "</p>" +
+      '<p class="contact-kicker" data-field="nav.contact">' + esc((wedding.nav && wedding.nav.contact) || "Hubungi") + "</p>" +
       cards +
       "</div></div>"
     );
@@ -733,66 +952,61 @@
   }
 
   function seatUnderPill(scene) {
-    var copy = scene.querySelector(".scene-copy");
-    var dock = document.querySelector(".dock");
-    if (!copy || !dock) return;
+    /* Disabled: translating the scene made guest layout diverge from admin positions */
+    clearSceneSeat();
+    if (scene) scene.classList.add("is-tabbed");
+  }
+
+  function clearSceneSeat() {
     document.querySelectorAll(".scene.is-tabbed").forEach(function (el) {
-      if (el !== scene) el.classList.remove("is-tabbed");
+      el.classList.remove("is-tabbed");
     });
-    document.querySelectorAll(".scene-copy").forEach(function (el) {
-      if (el !== copy) el.style.transform = "";
-    });
-    scene.classList.add("is-tabbed");
-    copy.style.transition = reduce ? "none" : "transform 0.55s cubic-bezier(0.22, 0.61, 0.36, 1)";
-    copy.style.transform = "translateY(0)";
-    window.requestAnimationFrame(function () {
-      var copyBox = copy.getBoundingClientRect();
-      var dockBox = dock.getBoundingClientRect();
-      var gap = 18;
-      var delta = dockBox.top - gap - copyBox.bottom;
-      copy.style.transform = "translateY(" + Math.round(delta) + "px)";
+    document.querySelectorAll(".scene-copy, .text-box-layer, .widget-layer").forEach(function (el) {
+      el.style.transform = "";
+      el.style.transition = "";
     });
   }
 
   function startCountdown(wedding) {
-    var grid = document.getElementById("countdown-figures");
-    var done = document.getElementById("countdown-done");
-    if (!grid) return;
-    var daysEl = grid.querySelector('[data-cd="days"]');
-    var hoursEl = grid.querySelector('[data-cd="hours"]');
-    var minsEl = grid.querySelector('[data-cd="mins"]');
-    var secsEl = grid.querySelector('[data-cd="secs"]');
+    var grids = document.querySelectorAll(".countdown-grid");
+    if (!grids.length) return;
     var target = weddingDate(wedding.date || {});
     window.clearInterval(startCountdown.timer);
-    function setPair(el, value) {
+    function setPair(root, key, value) {
+      var el = root.querySelector('[data-cd="' + key + '"]');
       if (el) el.textContent = pad2(value);
+    }
+    function paintAll(days, hours, mins, secs, finished) {
+      Array.prototype.forEach.call(grids, function (grid) {
+        setPair(grid, "days", days);
+        setPair(grid, "hours", hours);
+        setPair(grid, "mins", mins);
+        setPair(grid, "secs", secs);
+        grid.hidden = !!finished;
+        var host = grid.closest(".countdown") || grid.parentElement;
+        var done = host && host.querySelector(".countdown-done");
+        if (done) done.hidden = !finished;
+      });
     }
     function tick() {
       if (!isFinite(target.getTime())) {
-        setPair(daysEl, 0);
-        setPair(hoursEl, 0);
-        setPair(minsEl, 0);
-        setPair(secsEl, 0);
+        paintAll(0, 0, 0, 0, false);
         return;
       }
       var diff = target.getTime() - Date.now();
       if (diff <= 0) {
-        setPair(daysEl, 0);
-        setPair(hoursEl, 0);
-        setPair(minsEl, 0);
-        setPair(secsEl, 0);
-        grid.hidden = true;
-        if (done) done.hidden = false;
+        paintAll(0, 0, 0, 0, true);
         window.clearInterval(startCountdown.timer);
         return;
       }
-      grid.hidden = false;
-      if (done) done.hidden = true;
       var total = Math.floor(diff / 1000);
-      setPair(daysEl, Math.floor(total / 86400));
-      setPair(hoursEl, Math.floor((total % 86400) / 3600));
-      setPair(minsEl, Math.floor((total % 3600) / 60));
-      setPair(secsEl, total % 60);
+      paintAll(
+        Math.floor(total / 86400),
+        Math.floor((total % 86400) / 3600),
+        Math.floor((total % 3600) / 60),
+        total % 60,
+        false
+      );
     }
     tick();
     startCountdown.timer = window.setInterval(tick, 1000);
@@ -1001,18 +1215,23 @@
     }
     motionWatcher = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
-        if (entry.intersectionRatio === 0) {
-          entry.target.classList.remove("is-in");
+        var scene = entry.target;
+        var visible = entry.isIntersecting && entry.intersectionRatio >= 0.28;
+        if (!visible) {
+          scene.classList.remove("is-in");
           return;
         }
-        if (entry.intersectionRatio < 0.22 || entry.target.classList.contains("is-in")) return;
-        var lines = entry.target.querySelectorAll(".line");
+        if (scene.classList.contains("is-in")) return;
+        var lines = scene.querySelectorAll(".line");
         Array.prototype.forEach.call(lines, function (line, index) {
           line.style.animationDelay = Math.min(index * 0.08, 0.64) + "s";
         });
-        entry.target.classList.add("is-in");
+        // Force CSS animations to restart when scrolling back up
+        scene.classList.remove("is-in");
+        void scene.offsetWidth;
+        scene.classList.add("is-in");
       });
-    }, { threshold: [0, 0.22] });
+    }, { threshold: [0, 0.28, 0.55, 0.85] });
     Array.prototype.forEach.call(scenes, function (scene) {
       if (!scene.classList.contains("scene-opening")) motionWatcher.observe(scene);
     });
@@ -1130,7 +1349,7 @@
       }
       if (!attendance) {
         error.hidden = false;
-        error.textContent = book.errorAttendance || "Please let us know whether you can attend.";
+        error.textContent = book.errorAttendance || "Sila maklumkan sama ada anda dapat hadir.";
         return;
       }
       if (!message) {
@@ -1215,8 +1434,8 @@
     var audio = document.createElement("audio");
     audio.preload = "none";
     audio.loop = true;
-    var playLabel = wedding.musicPlay || "Play music";
-    var pauseLabel = wedding.musicPause || "Pause music";
+    var playLabel = wedding.musicPlay || "Mainkan muzik";
+    var pauseLabel = wedding.musicPause || "Jeda muzik";
     var button = document.createElement("button");
     button.type = "button";
     button.className = "music-button";
@@ -1279,10 +1498,10 @@
     var wedding = JSON.parse(JSON.stringify(source));
     ensureShape(wedding);
     if (!extra) return wedding;
-    assignStrings(wedding, extra, ["partnerOne", "partnerTwo", "music"]);
+    assignStrings(wedding, extra, ["partnerOne", "partnerTwo", "music", "musicPlay", "musicPause", "musicEmpty"]);
     assignGroup(wedding.date, extra.date, ["weekday", "day", "month", "year", "time"]);
-    assignGroup(wedding.opening, extra.opening, ["kicker", "continueLabel"]);
-    assignGroup(wedding.couple, extra.couple, ["kicker", "oneLine", "twoLine", "note"]);
+    assignGroup(wedding.opening, extra.opening, ["kicker", "nameOne", "nameTwo", "amp", "dateLine", "continueLabel"]);
+    assignGroup(wedding.couple, extra.couple, ["kicker", "amp", "oneLine", "twoLine", "note"]);
     assignGroup(wedding.announcement, extra.announcement, [
       "kicker", "parentsOneLabel", "parentsOne", "parentsTwoLabel", "parentsTwo",
       "message", "note", "quotationLabel", "quotation", "quotationSource", "announcement"
@@ -1306,7 +1525,7 @@
     assignGroup(wedding.place, extra.place, ["heading", "wazeLabel", "wazeUrl", "photoPlaceholder", "note"]);
     if (extra.place && Array.isArray(extra.place.timeline)) wedding.place.timeline = sanitizeTimeline(extra.place.timeline);
     if (extra.place && Array.isArray(extra.place.photos)) wedding.place.photos = sanitizePhotos(extra.place.photos);
-    assignGroup(wedding.closing, extra.closing, ["thankYou", "prayerLabel", "prayer", "closing", "note"]);
+    assignGroup(wedding.closing, extra.closing, ["thankYou", "prayerLabel", "prayer", "closing", "note", "signature"]);
     if (typeof extra.closing === "string") wedding.closing.closing = extra.closing;
     assignGroup(wedding.nav, extra.nav, ["contact", "location", "wishes", "rsvp", "couple", "day", "venue"]);
     assignGroup(wedding.contact, extra.contact, ["role", "name", "phone", "line"]);
@@ -1328,38 +1547,435 @@
         phone: wedding.contact.phone || ""
       }];
     }
-    assignGroup(wedding.countdown, extra.countdown, ["label", "arrival", "done"]);
-    assignGroup(wedding.rsvp, extra.rsvp, ["heading", "intro", "note"]);
-    assignGroup(wedding.guestbook, extra.guestbook, ["heading", "intro"]);
+    assignGroup(wedding.countdown, extra.countdown, [
+      "label", "arrival", "done", "daysLabel", "hoursLabel", "minsLabel", "secsLabel"
+    ]);
+    assignGroup(wedding.rsvp, extra.rsvp, [
+      "heading", "intro", "note", "nameLabel", "namePlaceholder", "attendanceLabel",
+      "acceptLabel", "declineLabel", "noteLabel", "notePlaceholder", "submitLabel",
+      "localNote", "confirmedKicker", "acceptMessage", "declineMessage", "editLabel",
+      "errorName", "errorAttendance"
+    ]);
+    assignGroup(wedding.guestbook, extra.guestbook, [
+      "heading", "intro", "nameLabel", "namePlaceholder", "attendanceLabel",
+      "acceptLabel", "declineLabel", "messageLabel", "messagePlaceholder", "submitLabel",
+      "empty", "errorName", "errorAttendance", "errorMessage"
+    ]);
     if (extra.textStyle && typeof extra.textStyle === "object" && !Array.isArray(extra.textStyle)) {
-      wedding.textStyle = cloneTree(extra.textStyle);
+      wedding.textStyle = mergeStyleTree(cloneTree(wedding.textStyle || {}), extra.textStyle);
+    }
+    if (Array.isArray(extra.textBoxes)) {
+      wedding.textBoxes = extra.textBoxes.map(function (box) {
+        if (!box || typeof box !== "object") return null;
+        var style = normalizeFieldStyle(box);
+        var next = {
+          id: String(box.id || ""),
+          scene: String(box.scene || "opening"),
+          text: String(box.text || ""),
+          size: style.size,
+          letter: style.letter,
+          spacing: style.spacing,
+          x: style.x,
+          y: style.y,
+          font: style.font,
+          color: style.color,
+          align: style.align
+        };
+        if (style.fontSizePx) next.fontSizePx = style.fontSizePx;
+        return next;
+      }).filter(function (box) {
+        return box && box.id;
+      });
+    }
+    if (Array.isArray(extra.widgets)) {
+      wedding.widgets = extra.widgets.map(function (item) {
+        if (!item || typeof item !== "object") return null;
+        var type = String(item.type || "");
+        if (type !== "map" && type !== "waze" && type !== "countdown") return null;
+        return {
+          id: String(item.id || ""),
+          scene: String(item.scene || "opening"),
+          type: type,
+          x: String(clampNumber(item.x, -280, 280, 0)),
+          y: String(clampNumber(item.y, -280, 280, 0))
+        };
+      }).filter(function (item) {
+        return item && item.id;
+      });
     }
     if (Array.isArray(extra.sceneOrder)) wedding.sceneOrder = normalizeOrder(extra.sceneOrder);
     return wedding;
   }
 
-  function applyType(wedding) {
-    var styles = wedding.textStyle || {};
-    document.querySelectorAll("[data-field]").forEach(function (el) {
-      var spec = pathValue(styles, el.getAttribute("data-field"));
-      if (!spec || typeof spec !== "object") return;
-      var size = clampNumber(spec.size, 70, 170, 100);
-      var spacing = clampNumber(spec.spacing, 70, 180, 100);
-      if (size === 100 && spacing === 100) return;
-      var computed = window.getComputedStyle(el);
-      if (size !== 100) {
-        var font = parseFloat(computed.fontSize);
-        if (font) el.style.fontSize = Math.round(font * size) / 100 + "px";
+  function isStyleLeaf(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    return (
+      "size" in value || "letter" in value || "spacing" in value ||
+      "x" in value || "y" in value || "font" in value || "color" in value || "align" in value
+    );
+  }
+
+  function mergeStyleTree(target, extra) {
+    if (!target || typeof target !== "object") target = {};
+    if (!extra || typeof extra !== "object" || Array.isArray(extra)) return target;
+    Object.keys(extra).forEach(function (key) {
+      var value = extra[key];
+      if (!value || typeof value !== "object" || Array.isArray(value)) return;
+      if (isStyleLeaf(value)) {
+        target[key] = Object.assign({}, target[key] || {}, value);
+        return;
       }
-      if (spacing !== 100) {
-        var line = parseFloat(computed.lineHeight);
-        if (line) el.style.lineHeight = Math.round(line * spacing) / 100 + "px";
-        var top = parseFloat(computed.marginTop);
-        if (top) el.style.marginTop = Math.round(top * spacing) / 100 + "px";
-        var bottom = parseFloat(computed.marginBottom);
-        if (bottom) el.style.marginBottom = Math.round(bottom * spacing) / 100 + "px";
+      if (!target[key] || typeof target[key] !== "object" || Array.isArray(target[key]) || isStyleLeaf(target[key])) {
+        target[key] = {};
+      }
+      mergeStyleTree(target[key], value);
+    });
+    return target;
+  }
+
+  var FONT_CHOICES = [
+    { id: "", label: "Asal seksyen" },
+    { id: "script", label: "Script (Italianno)" },
+    { id: "brush", label: "Brush (Alex Brush)" },
+    { id: "display", label: "Display (Marcellus)" },
+    { id: "quote", label: "Quote (Cormorant)" },
+    { id: "sans", label: "Sans (Manrope)" }
+  ];
+
+  function fontFamilyValue(id) {
+    if (id === "script") return "var(--script)";
+    if (id === "brush") return "var(--brush)";
+    if (id === "display") return "var(--display)";
+    if (id === "quote") return "var(--quote)";
+    if (id === "sans") return "var(--sans)";
+    return "";
+  }
+
+  function guessFontId(family) {
+    var raw = String(family || "").toLowerCase();
+    if (raw.indexOf("italianno") !== -1) return "script";
+    if (raw.indexOf("alex brush") !== -1) return "brush";
+    if (raw.indexOf("marcellus") !== -1) return "display";
+    if (raw.indexOf("cormorant") !== -1) return "quote";
+    if (raw.indexOf("manrope") !== -1) return "sans";
+    return "";
+  }
+
+  function cssColorToHex(value) {
+    var raw = String(value || "").trim();
+    if (!raw) return "";
+    if (raw.charAt(0) === "#") {
+      if (raw.length === 4) {
+        return ("#" + raw.charAt(1) + raw.charAt(1) + raw.charAt(2) + raw.charAt(2) + raw.charAt(3) + raw.charAt(3)).toLowerCase();
+      }
+      return raw.slice(0, 7).toLowerCase();
+    }
+    var match = raw.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (!match) return "";
+    return "#" + [match[1], match[2], match[3]].map(function (part) {
+      var hex = Number(part).toString(16);
+      return hex.length === 1 ? "0" + hex : hex;
+    }).join("");
+  }
+
+  function captureElementLook(el, style) {
+    style = normalizeFieldStyle(style || {});
+    var look = {
+      size: style.size,
+      letter: style.letter,
+      spacing: style.spacing,
+      font: style.font,
+      color: style.color,
+      align: style.align || "center",
+      x: style.x,
+      y: style.y,
+      fontSizePx: ""
+    };
+    if (!el || !window.getComputedStyle) return look;
+    var computed = window.getComputedStyle(el);
+    var sizePct = clampNumber(style.size, 70, 170, 100);
+    var rendered = parseFloat(computed.fontSize);
+    if (isFinite(rendered) && rendered > 0) {
+      look.fontSizePx = String(Math.round((rendered * 100) / sizePct * 10) / 10);
+    }
+    if (!look.font) look.font = guessFontId(computed.fontFamily);
+    if (!look.color) look.color = cssColorToHex(computed.color);
+    if (!look.align || look.align === "") {
+      var align = String(computed.textAlign || "");
+      if (align === "left" || align === "center" || align === "right") look.align = align;
+    }
+    return look;
+  }
+
+  function normalizeFieldStyle(spec) {
+    spec = spec || {};
+    var out = {
+      size: String(clampNumber(spec.size, 70, 170, 100)),
+      letter: String(clampNumber(spec.letter, 70, 180, 100)),
+      spacing: String(clampNumber(spec.spacing, 70, 180, 100)),
+      x: String(Math.round(clampNumber(spec.x, -600, 600, 0))),
+      y: String(Math.round(clampNumber(spec.y, -100, 1200, 0))),
+      font: String(spec.font || ""),
+      color: String(spec.color || ""),
+      align: String(spec.align || "")
+    };
+    if (spec.fontSizePx != null && spec.fontSizePx !== "") {
+      var px = Number(spec.fontSizePx);
+      if (isFinite(px) && px > 0) out.fontSizePx = String(Math.round(px * 10) / 10);
+    }
+    return out;
+  }
+
+  function designOnlyStyle(spec) {
+    var full = normalizeFieldStyle(spec);
+    return {
+      size: full.size,
+      letter: full.letter,
+      spacing: full.spacing,
+      font: full.font,
+      color: full.color,
+      align: full.align,
+      x: "0",
+      y: "0"
+    };
+  }
+
+  function textBoxId(path) {
+    if (!path || path.indexOf("textbox.") !== 0) return "";
+    return path.slice(8);
+  }
+
+  function widgetId(path) {
+    if (!path || path.indexOf("widget.") !== 0) return "";
+    return path.slice(7);
+  }
+
+  function findTextBox(wedding, id) {
+    var list = Array.isArray(wedding.textBoxes) ? wedding.textBoxes : [];
+    var index;
+    for (index = 0; index < list.length; index += 1) {
+      if (list[index] && list[index].id === id) return list[index];
+    }
+    return null;
+  }
+
+  function findWidget(wedding, id) {
+    var list = Array.isArray(wedding.widgets) ? wedding.widgets : [];
+    var index;
+    for (index = 0; index < list.length; index += 1) {
+      if (list[index] && list[index].id === id) return list[index];
+    }
+    return null;
+  }
+
+  function widgetTypeFromPath(path, wedding) {
+    if (!path) return "";
+    if (path === "venue.mapLabel") return "map";
+    if (path === "place.wazeLabel") return "waze";
+    if (path.indexOf("countdown.") === 0) return "countdown";
+    var id = widgetId(path);
+    if (!id) return "";
+    var item = findWidget(wedding || currentWedding(), id);
+    return item ? String(item.type || "") : "";
+  }
+
+  function fieldStyleFor(wedding, path) {
+    var boxId = textBoxId(path);
+    if (boxId) {
+      var box = findTextBox(wedding, boxId);
+      return box ? normalizeFieldStyle(box) : normalizeFieldStyle({});
+    }
+    var wid = widgetId(path);
+    if (wid) {
+      var widget = findWidget(wedding, wid);
+      return widget ? normalizeFieldStyle(widget) : normalizeFieldStyle({});
+    }
+    return normalizeFieldStyle(pathValue(wedding.textStyle || {}, path) || {});
+  }
+
+  function isLayerPath(path) {
+    /* Text boxes are in-flow now — only widgets / countdown stay floating */
+    return !!widgetId(path) || path === "countdown.box";
+  }
+
+  function resetBrokenPositions(wedding) {
+    /* Cleanup old absolute offsets that break center / right align */
+    try {
+      if (localStorage.getItem("wedding-pos-reset-v24") === "1") return false;
+    } catch (error) {}
+    var dirty = false;
+    function walk(node) {
+      if (!node || typeof node !== "object" || Array.isArray(node)) return;
+      if (node.size != null || node.x != null || node.y != null || node.spacing != null) {
+        if (Number(node.x) || Number(node.y)) {
+          node.x = "0";
+          node.y = "0";
+          dirty = true;
+        }
+        return;
+      }
+      Object.keys(node).forEach(function (key) { walk(node[key]); });
+    }
+    walk(wedding.textStyle || {});
+    (Array.isArray(wedding.textBoxes) ? wedding.textBoxes : []).forEach(function (box) {
+      if (!box) return;
+      if (Number(box.x) || Number(box.y)) {
+        box.x = "0";
+        box.y = "0";
+        dirty = true;
       }
     });
+    (Array.isArray(wedding.widgets) ? wedding.widgets : []).forEach(function (item) {
+      if (!item) return;
+      if (Number(item.x) || Number(item.y)) {
+        item.x = "0";
+        item.y = "0";
+        dirty = true;
+      }
+    });
+    try { localStorage.setItem("wedding-pos-reset-v24", "1"); } catch (error) {}
+    return dirty || true;
+  }
+
+  function applyType(wedding) {
+    document.querySelectorAll("[data-field]").forEach(function (el) {
+      var path = el.getAttribute("data-field");
+      if (!path) return;
+      var spec = fieldStyleFor(wedding, path);
+      var size = clampNumber(spec.size, 70, 170, 100);
+      var spacing = clampNumber(spec.spacing, 70, 180, 100);
+      var letter = clampNumber(spec.letter, 70, 180, 100);
+      /* Use stored offsets as-is — scene clamping happens only in applyDragOffset */
+      var x = Math.round(clampNumber(spec.x, -600, 600, 0));
+      var y = Math.round(clampNumber(spec.y, -100, 1200, 0));
+      var font = String(spec.font || "");
+      var color = String(spec.color || "");
+      var align = String(spec.align || "");
+      var isBox = !!textBoxId(path);
+      var isWidget = !!widgetId(path);
+      var isCountdownBox = path === "countdown.box";
+      var layer = isLayerPath(path);
+      var basePx = Number(spec.fontSizePx);
+      if (
+        !layer &&
+        size === 100 && spacing === 100 && letter === 100 &&
+        x === 0 && y === 0 && !font && !color && !align
+      ) {
+        /* Still clear any stale drag transform left from a prior bad paint */
+        if (el.dataset.dragPos === "1" || (el.style && el.style.transform)) {
+          applyDragOffset(el, 0, 0, false);
+        }
+        return;
+      }
+      if (isCountdownBox) {
+        applyDragOffset(el, x, y, true);
+        return;
+      }
+      var computed = window.getComputedStyle(el);
+      if (isBox && isFinite(basePx) && basePx > 0) {
+        el.style.fontSize = Math.round(basePx * size) / 100 + "px";
+      } else if (!isWidget && size !== 100) {
+        var base = parseFloat(computed.fontSize) || 18;
+        el.style.fontSize = Math.round(base * size) / 100 + "px";
+      }
+      if (!isWidget && letter !== 100) {
+        var ls = parseFloat(computed.letterSpacing);
+        if (!isFinite(ls) || ls === 0) ls = (parseFloat(computed.fontSize) || 18) * 0.02;
+        if (ls) el.style.letterSpacing = Math.round(ls * letter) / 100 + "px";
+      }
+      if (!isWidget && spacing !== 100) {
+        var line = parseFloat(computed.lineHeight);
+        if (line) el.style.lineHeight = Math.round(line * spacing) / 100 + "px";
+      }
+      if (!isWidget) {
+        var family = fontFamilyValue(font);
+        if (family) {
+          el.style.fontFamily = family;
+          el.style.fontStyle = font === "quote" ? "italic" : "";
+        }
+        if (color) el.style.color = color;
+        if (align) {
+          el.style.textAlign = align;
+          /* Full width so center / right align inside the column, not a shrink-wrapped box */
+          if (!layer) {
+            el.style.display = "block";
+            el.style.width = "100%";
+            el.style.maxWidth = "100%";
+            el.style.boxSizing = "border-box";
+            el.style.marginLeft = "0";
+            el.style.marginRight = "0";
+          }
+        }
+      }
+      applyDragOffset(el, x, y, layer);
+    });
+  }
+
+  function posLimits(el) {
+    var scene = el && el.closest ? el.closest(".scene") : null;
+    var box = scene ? scene.getBoundingClientRect() : { width: 0, height: 0 };
+    var width = box.width >= 120 ? box.width : 390;
+    var height = box.height >= 200 ? box.height : 844;
+    var minX = -Math.round(width / 2 - 20);
+    var maxX = Math.round(width / 2 - 20);
+    var minY = -Math.round(height * 0.35);
+    var maxY = Math.round(height - 100);
+    if (minX > maxX) {
+      minX = -175;
+      maxX = 175;
+    }
+    if (minY > maxY) {
+      minY = -200;
+      maxY = 700;
+    }
+    return { minX: minX, maxX: maxX, minY: minY, maxY: maxY };
+  }
+
+  function applyDragOffset(el, x, y, asLayer) {
+    var lim = posLimits(el);
+    var rawX = Number(x);
+    var rawY = Number(y);
+    if (!isFinite(rawX)) rawX = 0;
+    if (!isFinite(rawY)) rawY = 0;
+    /* Keep true zeros — never let a broken clamp invent offsets */
+    if (rawX === 0 && rawY === 0) {
+      el.style.left = "";
+      el.style.top = "";
+      el.style.right = "";
+      el.style.transform = "";
+      el.style.zIndex = "";
+      if (el.dataset.dragPos === "1") {
+        if (!asLayer) el.style.position = "";
+        delete el.dataset.dragPos;
+      }
+      if (asLayer && el.classList.contains("user-widget")) {
+        el.style.left = "50%";
+        el.style.top = "4.2rem";
+        el.style.transform = "translateX(-50%)";
+        el.style.position = "absolute";
+      }
+      return;
+    }
+    x = Math.round(clampNumber(rawX, lim.minX, lim.maxX, rawX));
+    y = Math.round(clampNumber(rawY, lim.minY, lim.maxY, rawY));
+    el.dataset.dragPos = "1";
+    if (asLayer) {
+      el.style.position = "absolute";
+      el.style.left = "calc(50% + " + x + "px)";
+      el.style.top = Math.max(8, 48 + y) + "px";
+      el.style.right = "auto";
+      el.style.transform = "translateX(-50%)";
+      el.style.zIndex = "8";
+      el.style.margin = "0";
+      return;
+    }
+    /* Nudge with transform — keeps text-align left/center/right working */
+    el.style.position = "relative";
+    el.style.left = "";
+    el.style.top = "";
+    el.style.right = "";
+    el.style.transform = "translate(" + x + "px, " + y + "px)";
+    el.style.zIndex = "6";
   }
 
   function pathValue(root, path) {
@@ -1384,6 +2000,7 @@
   function clampNumber(value, min, max, fallback) {
     var number = parseFloat(value);
     if (!isFinite(number)) return fallback;
+    if (!(min <= max)) return number;
     return Math.min(max, Math.max(min, number));
   }
 
@@ -1407,6 +2024,11 @@
     wedding.contact = wedding.contact || {};
     wedding.countdown = wedding.countdown || {};
     wedding.textStyle = wedding.textStyle || {};
+    if (!Array.isArray(wedding.textBoxes)) wedding.textBoxes = [];
+    if (!Array.isArray(wedding.widgets)) wedding.widgets = [];
+    /* Corrupt {} from older saves broke pasted boxes on guest */
+    if (wedding.textBoxes && !Array.isArray(wedding.textBoxes)) wedding.textBoxes = [];
+    if (wedding.widgets && !Array.isArray(wedding.widgets)) wedding.widgets = [];
     wedding.sceneOrder = normalizeOrder(wedding.sceneOrder);
     if (typeof wedding.music !== "string") wedding.music = "";
   }
@@ -1469,12 +2091,20 @@
     return String(text || "").split("").map(function (ch) {
       if (ch === " ") {
         delay += 0.04;
-        return '<span class="letter space">&nbsp;</span>';
+        return '<span class="letter space" style="animation-delay:' + delay.toFixed(2) + 's">&nbsp;</span>';
       }
       var piece = '<span class="letter" style="animation-delay:' + delay.toFixed(2) + 's">' + esc(ch) + "</span>";
       delay += 0.07;
       return piece;
     }).join("");
+  }
+
+  function ampDelay(text, start) {
+    var delay = Number(start) || 0;
+    String(text || "").split("").forEach(function (ch) {
+      delay += ch === " " ? 0.04 : 0.07;
+    });
+    return delay + 0.08;
   }
 
   function monogramMark(wedding, className) {
@@ -1571,12 +2201,717 @@
       .replace(/"/g, "&quot;");
   }
 
+  var fieldEditBound = false;
+  var fieldPressTimer = null;
+  var fieldPressTarget = null;
+  var fieldDrag = null;
+
+  function canLiveEdit() {
+    /* Edit chrome only when admin parent enables it — NOT merely preview=draft */
+    try {
+      return sessionStorage.getItem("wedding-admin-open") === "yes";
+    } catch (error) {
+      return false;
+    }
+  }
+
+  function bindFieldEdit() {
+    closeFieldEditor();
+    endFieldDrag(false);
+    if (canLiveEdit()) document.documentElement.classList.add("is-field-edit");
+    else document.documentElement.classList.remove("is-field-edit");
+    if (fieldEditBound) return;
+    fieldEditBound = true;
+    document.addEventListener("click", onFieldClick, true);
+    document.addEventListener("pointerdown", onFieldPointerDown, true);
+    document.addEventListener("pointermove", onFieldPointerMove, true);
+    document.addEventListener("pointerup", onFieldPointerUp, true);
+    document.addEventListener("pointercancel", onFieldPointerUp, true);
+    document.addEventListener("keydown", function (event) {
+      if (event.key === "Escape") {
+        closeFieldEditor();
+        endFieldDrag(false);
+      }
+    });
+  }
+
+  function fieldEditTarget(event) {
+    if (!canLiveEdit()) return null;
+    var el = event.target.closest("[data-field]");
+    if (!el || el.closest("#field-editor")) return null;
+    if (el.matches("input, textarea, select, button") || el.closest("input, textarea, select, button")) {
+      return null;
+    }
+    var path = el.getAttribute("data-field") || "";
+    var editableLink =
+      path === "venue.mapLabel" ||
+      path === "place.wazeLabel" ||
+      path.indexOf("widget.") === 0;
+    if (el.matches("a") || el.closest("a")) {
+      if (!editableLink) return null;
+      if (!el.matches("a") && el.closest("a[data-field]")) el = el.closest("a[data-field]");
+    }
+    return el;
+  }
+
+  function onFieldClick(event) {
+    var el = fieldEditTarget(event);
+    if (!el) return;
+    if (fieldDrag && fieldDrag.moved) return;
+    event.preventDefault();
+    event.stopPropagation();
+    openFieldEditor(el);
+  }
+
+  function fieldPoint(event) {
+    return { x: event.clientX, y: event.clientY };
+  }
+
+  function onFieldPointerDown(event) {
+    if (!canLiveEdit() || event.button > 0) return;
+    var el = fieldEditTarget(event);
+    if (!el) return;
+    /* Move the whole live-counter box, not its inner labels */
+    var countdownBox = el.closest('[data-field="countdown.box"]');
+    if (countdownBox) el = countdownBox;
+    var path = el.getAttribute("data-field");
+    if (!path) return;
+    var styles = fieldStyleFor(currentWedding(), path);
+    var point = fieldPoint(event);
+    if (el.matches("a")) event.preventDefault();
+    var lim = posLimits(el);
+    var origX = Math.round(clampNumber(styles.x, lim.minX, lim.maxX, 0));
+    var origY = Math.round(clampNumber(styles.y, lim.minY, lim.maxY, 0));
+    fieldDrag = {
+      el: el,
+      path: path,
+      asLayer: isLayerPath(path),
+      lim: lim,
+      startX: point.x,
+      startY: point.y,
+      origX: origX,
+      origY: origY,
+      curX: origX,
+      curY: origY,
+      moved: false,
+      ready: true,
+      pointerId: event.pointerId
+    };
+    fieldPressTarget = el;
+    clearTimeout(fieldPressTimer);
+    el.classList.add("is-drag-ready");
+  }
+
+  function onFieldPointerMove(event) {
+    if (!fieldDrag || fieldDrag.pointerId !== event.pointerId) return;
+    var point = fieldPoint(event);
+    var dx = point.x - fieldDrag.startX;
+    var dy = point.y - fieldDrag.startY;
+    var dist = Math.hypot(dx, dy);
+    if (!fieldDrag.moved) {
+      if (!fieldDrag.ready || dist < 8) return;
+      fieldDrag.moved = true;
+      clearTimeout(fieldPressTimer);
+      fieldPressTimer = null;
+      fieldPressTarget = null;
+      closeFieldEditor();
+      fieldDrag.el.classList.remove("is-drag-ready");
+      fieldDrag.el.classList.add("is-dragging");
+      document.documentElement.classList.add("is-field-dragging");
+      try { fieldDrag.el.setPointerCapture(event.pointerId); } catch (error) {}
+    }
+    var lim = fieldDrag.lim || posLimits(fieldDrag.el);
+    fieldDrag.curX = Math.round(clampNumber(fieldDrag.origX + dx, lim.minX, lim.maxX, 0));
+    fieldDrag.curY = Math.round(clampNumber(fieldDrag.origY + dy, lim.minY, lim.maxY, 0));
+    applyDragOffset(fieldDrag.el, fieldDrag.curX, fieldDrag.curY, fieldDrag.asLayer);
+    event.preventDefault();
+  }
+
+  function onFieldPointerUp(event) {
+    if (!fieldDrag || (event && fieldDrag.pointerId !== event.pointerId)) return;
+    var moved = fieldDrag.moved;
+    var path = fieldDrag.path;
+    var x = fieldDrag.curX;
+    var y = fieldDrag.curY;
+    if (fieldDrag.el) fieldDrag.el.classList.remove("is-drag-ready");
+    endFieldDrag(false);
+    if (moved) saveFieldOffset(path, x, y);
+  }
+
+  function endFieldDrag(save) {
+    clearTimeout(fieldPressTimer);
+    fieldPressTimer = null;
+    fieldPressTarget = null;
+    if (!fieldDrag) return;
+    if (fieldDrag.el) {
+      fieldDrag.el.classList.remove("is-dragging");
+      fieldDrag.el.classList.remove("is-drag-ready");
+    }
+    document.documentElement.classList.remove("is-field-dragging");
+    if (save && fieldDrag.moved) saveFieldOffset(fieldDrag.path, fieldDrag.curX, fieldDrag.curY);
+    fieldDrag = null;
+  }
+
+  function saveFieldOffset(path, x, y) {
+    var prev = fieldStyleFor(currentWedding(), path);
+    prev.x = String(Math.round(x));
+    prev.y = String(Math.round(y));
+    persistFieldPatch(path, null, prev);
+  }
+
+  function persistFieldPatch(path, text, styleSpec) {
+    var draft = cloneTree(readStore("wedding-card-draft") || readStore("wedding-card-published") || {});
+    var current = currentWedding();
+    draft.textStyle = mergeStyleTree(cloneTree(current.textStyle || {}), draft.textStyle || {});
+    draft.textBoxes = cloneTree(current.textBoxes || []);
+    draft.widgets = cloneTree(current.widgets || []);
+    var style = normalizeFieldStyle(styleSpec || {});
+    var boxId = textBoxId(path);
+    var wid = widgetId(path);
+    if (boxId) {
+      var box = findTextBox(draft, boxId);
+      if (!box) {
+        box = { id: boxId, scene: "opening", text: "" };
+        draft.textBoxes.push(box);
+      }
+      var keptPx = box.fontSizePx;
+      if (text != null) box.text = String(text);
+      Object.assign(box, style);
+      if (style.fontSizePx) box.fontSizePx = style.fontSizePx;
+      else if (keptPx) box.fontSizePx = keptPx;
+    } else if (wid) {
+      var widget = findWidget(draft, wid);
+      if (!widget) {
+        widget = { id: wid, scene: "opening", type: "map" };
+        draft.widgets.push(widget);
+      }
+      widget.x = style.x;
+      widget.y = style.y;
+      if (text != null) {
+        if (widget.type === "map") {
+          draft.venue = draft.venue || {};
+          draft.venue.mapLabel = String(text);
+        } else if (widget.type === "waze") {
+          draft.place = draft.place || {};
+          draft.place.wazeLabel = String(text);
+        }
+      }
+    } else {
+      if (text != null) writeFieldValue(draft, path, text);
+      if (!draft.textStyle || typeof draft.textStyle !== "object") draft.textStyle = {};
+      setDeep(draft.textStyle, path, style);
+    }
+    writeStore("wedding-card-draft", draft);
+    writeStore("wedding-card-published", draft);
+    paint(mergeWedding(base, draft), true);
+    if (window.parent && window.parent !== window) {
+      try {
+        window.parent.postMessage({ type: "wedding-field-saved", payload: draft }, window.location.origin);
+      } catch (error) {}
+    }
+  }
+
+  function pasteTextBox(sceneId, clip) {
+    if (!clip) return;
+    if (clip.kind === "widget" && clip.widgetType) {
+      pasteWidget(sceneId, clip);
+      return;
+    }
+    var draft = cloneTree(readStore("wedding-card-draft") || readStore("wedding-card-published") || {});
+    var current = currentWedding();
+    draft.textStyle = mergeStyleTree(cloneTree(current.textStyle || {}), draft.textStyle || {});
+    draft.textBoxes = cloneTree(current.textBoxes || []);
+    draft.widgets = cloneTree(current.widgets || []);
+    var style = normalizeFieldStyle(clip);
+    var box = {
+      id: newTextBoxId(),
+      scene: sceneId || clip.scene || "opening",
+      text: String(clip.text || "Teks baharu"),
+      size: style.size,
+      letter: style.letter,
+      spacing: style.spacing,
+      font: style.font,
+      color: style.color,
+      align: style.align || "center",
+      x: String(clampNumber(Number(style.x) + 12, -280, 280, 12)),
+      y: String(clampNumber(Number(style.y) + 36, -280, 280, 36))
+    };
+    if (style.fontSizePx) box.fontSizePx = style.fontSizePx;
+    else if (clip.fontSizePx) box.fontSizePx = String(clip.fontSizePx);
+    draft.textBoxes.push(box);
+    writeStore("wedding-card-draft", draft);
+    writeStore("wedding-card-published", draft);
+    closeFieldEditor();
+    paint(mergeWedding(base, draft), true);
+    if (window.parent && window.parent !== window) {
+      try {
+        window.parent.postMessage({ type: "wedding-field-saved", payload: draft }, window.location.origin);
+      } catch (error) {}
+    }
+  }
+
+  function pasteWidget(sceneId, clip) {
+    if (!clip || !clip.widgetType) return;
+    var draft = cloneTree(readStore("wedding-card-draft") || readStore("wedding-card-published") || {});
+    var current = currentWedding();
+    draft.textStyle = mergeStyleTree(cloneTree(current.textStyle || {}), draft.textStyle || {});
+    draft.textBoxes = cloneTree(current.textBoxes || []);
+    draft.widgets = cloneTree(current.widgets || []);
+    var style = normalizeFieldStyle(clip);
+    draft.widgets.push({
+      id: newTextBoxId(),
+      scene: sceneId || clip.scene || "opening",
+      type: String(clip.widgetType),
+      x: String(clampNumber(Number(style.x) + 12, -280, 280, 12)),
+      y: String(clampNumber(Number(style.y) + 36, -280, 280, 36))
+    });
+    writeStore("wedding-card-draft", draft);
+    writeStore("wedding-card-published", draft);
+    closeFieldEditor();
+    paint(mergeWedding(base, draft), true);
+    if (window.parent && window.parent !== window) {
+      try {
+        window.parent.postMessage({ type: "wedding-field-saved", payload: draft }, window.location.origin);
+      } catch (error) {}
+    }
+  }
+
+  function deleteTextBox(path) {
+    var boxId = textBoxId(path);
+    if (!boxId) return;
+    var draft = cloneTree(readStore("wedding-card-draft") || readStore("wedding-card-published") || {});
+    var current = currentWedding();
+    draft.textStyle = mergeStyleTree(cloneTree(current.textStyle || {}), draft.textStyle || {});
+    draft.textBoxes = (current.textBoxes || []).filter(function (box) {
+      return box && box.id !== boxId;
+    });
+    draft.widgets = cloneTree(current.widgets || []);
+    writeStore("wedding-card-draft", draft);
+    writeStore("wedding-card-published", draft);
+    closeFieldEditor();
+    paint(mergeWedding(base, draft), true);
+    if (window.parent && window.parent !== window) {
+      try {
+        window.parent.postMessage({ type: "wedding-field-saved", payload: draft }, window.location.origin);
+      } catch (error) {}
+    }
+  }
+
+  function deleteWidget(path) {
+    var id = widgetId(path);
+    if (!id) return;
+    var draft = cloneTree(readStore("wedding-card-draft") || readStore("wedding-card-published") || {});
+    var current = currentWedding();
+    draft.textStyle = mergeStyleTree(cloneTree(current.textStyle || {}), draft.textStyle || {});
+    draft.textBoxes = cloneTree(current.textBoxes || []);
+    draft.widgets = (current.widgets || []).filter(function (item) {
+      return item && item.id !== id;
+    });
+    writeStore("wedding-card-draft", draft);
+    writeStore("wedding-card-published", draft);
+    closeFieldEditor();
+    paint(mergeWedding(base, draft), true);
+    if (window.parent && window.parent !== window) {
+      try {
+        window.parent.postMessage({ type: "wedding-field-saved", payload: draft }, window.location.origin);
+      } catch (error) {}
+    }
+  }
+
+  function readStyleClipboard() {
+    try {
+      var parsed = JSON.parse(sessionStorage.getItem("wedding-style-clipboard") || "null");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+      return normalizeFieldStyle(parsed);
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function writeStyleClipboard(spec) {
+    try {
+      sessionStorage.setItem("wedding-style-clipboard", JSON.stringify(normalizeFieldStyle(spec)));
+    } catch (error) {}
+  }
+
+  function readFieldValue(wedding, path) {
+    var boxId = textBoxId(path);
+    if (boxId) {
+      var box = findTextBox(wedding, boxId);
+      return box ? String(box.text || "") : "";
+    }
+    var wid = widgetId(path);
+    if (wid) {
+      var widget = findWidget(wedding, wid);
+      if (!widget) return "";
+      if (widget.type === "map") return String((wedding.venue && wedding.venue.mapLabel) || "Google Maps");
+      if (widget.type === "waze") return String((wedding.place && wedding.place.wazeLabel) || "Waze");
+      if (widget.type === "countdown") return String((wedding.countdown && wedding.countdown.label) || "Kiraan undur");
+      return widget.type;
+    }
+    if (path === "countdown.box") {
+      return String((wedding.countdown && wedding.countdown.label) || "Kiraan undur");
+    }
+    if (path.indexOf("timeline.") === 0) {
+      var parts = path.split(".");
+      var item = (wedding.place && wedding.place.timeline && wedding.place.timeline[Number(parts[1])]) || {};
+      return String(item[parts[2]] || "");
+    }
+    var value = pathValue(wedding, path);
+    return value == null ? "" : String(value);
+  }
+
+  function writeFieldValue(wedding, path, text) {
+    if (path === "countdown.box") {
+      wedding.countdown = wedding.countdown || {};
+      if (text != null && String(text).trim()) wedding.countdown.label = String(text);
+      return;
+    }
+    var boxId = textBoxId(path);
+    if (boxId) {
+      var box = findTextBox(wedding, boxId);
+      if (box) box.text = String(text || "");
+      return;
+    }
+    if (path.indexOf("timeline.") === 0) {
+      var parts = path.split(".");
+      var index = Number(parts[1]);
+      var key = parts[2];
+      if (!wedding.place) wedding.place = {};
+      if (!Array.isArray(wedding.place.timeline)) wedding.place.timeline = [];
+      while (wedding.place.timeline.length <= index) {
+        wedding.place.timeline.push({ time: "", title: "", detail: "" });
+      }
+      if (!wedding.place.timeline[index] || typeof wedding.place.timeline[index] !== "object") {
+        wedding.place.timeline[index] = { time: "", title: "", detail: "" };
+      }
+      wedding.place.timeline[index][key] = text;
+      return;
+    }
+    setDeep(wedding, path, text);
+  }
+
+  function sceneIdFromElement(el) {
+    var scene = el && el.closest ? el.closest(".scene") : null;
+    return scene && scene.id ? scene.id : "opening";
+  }
+
+  function newTextBoxId() {
+    return "tb_" + Date.now().toString(36) + Math.floor(Math.random() * 1000).toString(36);
+  }
+
+  function readBoxClipboard() {
+    try {
+      var parsed = JSON.parse(sessionStorage.getItem("wedding-textbox-clipboard") || "null");
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+      return parsed;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function writeBoxClipboard(payload) {
+    try {
+      sessionStorage.setItem("wedding-textbox-clipboard", JSON.stringify(payload));
+    } catch (error) {}
+  }
+
+  function setDeep(target, path, value) {
+    var parts = String(path || "").split(".");
+    var cursor = target;
+    var i;
+    for (i = 0; i < parts.length - 1; i += 1) {
+      var key = parts[i];
+      var nextIsIndex = /^\d+$/.test(parts[i + 1]);
+      if (!cursor[key] || typeof cursor[key] !== "object") cursor[key] = nextIsIndex ? [] : {};
+      cursor = cursor[key];
+    }
+    cursor[parts[parts.length - 1]] = value;
+  }
+
+  function openFieldEditor(el) {
+    var path = el.getAttribute("data-field");
+    if (!path) return;
+    closeFieldEditor();
+    var wedding = currentWedding();
+    var styles = fieldStyleFor(wedding, path);
+    var size = clampNumber(styles.size, 70, 170, 100);
+    var spacing = clampNumber(styles.spacing, 70, 180, 100);
+    var letter = clampNumber(styles.letter, 70, 180, 100);
+    var x = Math.round(clampNumber(styles.x, -400, 400, 0));
+    var y = Math.round(clampNumber(styles.y, -400, 400, 0));
+    var font = styles.font || "";
+    var color = styles.color || "#2e2a27";
+    var align = styles.align || "";
+    var text = readFieldValue(wedding, path);
+    var isPlaceholder = /Placeholder$/.test(path);
+    var isCustomBox = !!textBoxId(path);
+    var isWidget = !!widgetId(path);
+    var isCountdownBox = path === "countdown.box";
+    var copyWidgetType = widgetTypeFromPath(path, wedding);
+    var sceneId = sceneIdFromElement(el);
+    var clipNow = readBoxClipboard();
+    var hasBoxClip = !!clipNow;
+    var copyLabel = copyWidgetType === "map"
+      ? "Salin Google Maps"
+      : copyWidgetType === "waze"
+        ? "Salin Waze"
+        : copyWidgetType === "countdown"
+          ? "Salin kiraan undur"
+          : "Salin kotak teks";
+    var pasteLabel = clipNow && clipNow.kind === "widget"
+      ? (clipNow.widgetType === "map"
+        ? "Tampal Google Maps"
+        : clipNow.widgetType === "waze"
+          ? "Tampal Waze"
+          : clipNow.widgetType === "countdown"
+            ? "Tampal kiraan undur"
+            : "Tampal widget")
+      : "Tampal kotak teks";
+    var deleteLabel = isCountdownBox
+      ? "Reset kedudukan"
+      : isWidget
+        ? "Padam widget"
+        : isCustomBox
+          ? "Padam kotak teks"
+          : "Padam teks";
+    var fontOptions = FONT_CHOICES.map(function (item) {
+      return '<option value="' + esc(item.id) + '"' + (font === item.id ? " selected" : "") + ">" +
+        esc(item.label) + "</option>";
+    }).join("");
+    var panel = document.createElement("div");
+    panel.id = "field-editor";
+    panel.setAttribute("role", "dialog");
+    panel.setAttribute("aria-label", "Sunting teks");
+    panel.innerHTML =
+      '<p class="field-editor-path">' + esc(isCountdownBox ? "kiraan undur" : path) + "</p>" +
+      '<p class="field-editor-hint">Seret teks untuk gerakkan. Ketik untuk sunting. Tetamu akan nampak kedudukan yang sama.</p>' +
+      (copyWidgetType === "countdown" && isWidget
+        ? '<p class="field-editor-hint">Salinan kiraan undur — teks dikongsi dengan kiraan utama. Seret atau Padam di sini.</p>'
+        : "") +
+      '<label class="field-editor-label"><span>' + (isCountdownBox ? "Tajuk kiraan" : "Teks / perenggan") + "</span>" +
+      '<textarea id="field-editor-text" rows="3"' + (copyWidgetType === "countdown" && isWidget ? " readonly" : "") + "></textarea></label>" +
+      ((isWidget && copyWidgetType === "countdown") || isCountdownBox
+        ? ""
+        : (
+          '<label class="field-editor-label"><span>Fon</span>' +
+          '<select id="field-editor-font">' + fontOptions + "</select></label>" +
+          '<label class="field-editor-label"><span>Warna</span>' +
+          '<span class="field-editor-color-row">' +
+          '<input id="field-editor-color" type="color" value="' + esc(color) + '">' +
+          '<button type="button" class="text-button" id="field-editor-color-reset">Asal</button>' +
+          "</span></label>" +
+          '<label class="field-editor-label"><span>Jajaran</span>' +
+          '<select id="field-editor-align">' +
+          '<option value=""' + (align === "" ? " selected" : "") + ">Asal</option>" +
+          '<option value="left"' + (align === "left" ? " selected" : "") + ">Kiri</option>" +
+          '<option value="center"' + (align === "center" ? " selected" : "") + ">Tengah</option>" +
+          '<option value="right"' + (align === "right" ? " selected" : "") + ">Kanan</option>" +
+          "</select></label>" +
+          '<label class="field-editor-label"><span>Saiz teks <output id="field-size-out">' + size + "%</output></span>" +
+          '<input id="field-editor-size" type="range" min="70" max="170" step="1" value="' + size + '"></label>' +
+          '<label class="field-editor-label"><span>Jarak huruf <output id="field-letter-out">' + letter + "%</output></span>" +
+          '<input id="field-editor-letter" type="range" min="70" max="180" step="1" value="' + letter + '"></label>' +
+          '<label class="field-editor-label"><span>Ketinggian baris <output id="field-spacing-out">' + spacing + "%</output></span>" +
+          '<input id="field-editor-spacing" type="range" min="70" max="180" step="1" value="' + spacing + '"></label>'
+        )) +
+      '<div class="field-editor-actions field-editor-copy">' +
+      '<button type="button" class="button" id="field-editor-copy-box">' + esc(copyLabel) + "</button>" +
+      '<button type="button" class="button" id="field-editor-paste-box"' + (hasBoxClip ? "" : " disabled") + ">" + esc(pasteLabel) + "</button>" +
+      "</div>" +
+      '<p class="field-editor-hint">Salin Google Maps / Waze / kiraan undur, buka seksyen lain, kemudian Tampal.</p>' +
+      (isPlaceholder ? '<p class="field-editor-hint">Ini teks placeholder medan.</p>' : "") +
+      '<div class="field-editor-actions">' +
+      '<button type="button" class="button field-editor-delete" id="field-editor-delete">' + esc(deleteLabel) + "</button>" +
+      "</div>" +
+      '<div class="field-editor-actions">' +
+      '<button type="button" class="button" id="field-editor-save">Simpan</button>' +
+      '<button type="button" class="text-button" id="field-editor-close">Tutup</button>' +
+      "</div>";
+    document.body.appendChild(panel);
+    var box = panel.querySelector("#field-editor-text");
+    var colorInput = panel.querySelector("#field-editor-color");
+    var colorReset = false;
+    box.value = text;
+    if (colorInput && !styles.color) {
+      colorReset = true;
+      colorInput.value = "#2e2a27";
+    }
+    function bindRange(id, outId, unit) {
+      var input = panel.querySelector("#" + id);
+      var out = panel.querySelector("#" + outId);
+      if (!input || !out) return;
+      input.addEventListener("input", function () { out.textContent = input.value + unit; });
+    }
+    bindRange("field-editor-size", "field-size-out", "%");
+    bindRange("field-editor-letter", "field-letter-out", "%");
+    bindRange("field-editor-spacing", "field-spacing-out", "%");
+    if (colorInput) colorInput.addEventListener("input", function () { colorReset = false; });
+    var colorResetBtn = panel.querySelector("#field-editor-color-reset");
+    if (colorResetBtn) {
+      colorResetBtn.addEventListener("click", function () {
+        colorReset = true;
+        colorInput.value = "#2e2a27";
+      });
+    }
+    function collectStyleFromPanel(keepPosition) {
+      var sizeEl = panel.querySelector("#field-editor-size");
+      var letterEl = panel.querySelector("#field-editor-letter");
+      var spacingEl = panel.querySelector("#field-editor-spacing");
+      var fontEl = panel.querySelector("#field-editor-font");
+      var alignEl = panel.querySelector("#field-editor-align");
+      var style = {
+        size: sizeEl ? sizeEl.value : "100",
+        letter: letterEl ? letterEl.value : "100",
+        spacing: spacingEl ? spacingEl.value : "100",
+        font: fontEl ? fontEl.value : "",
+        color: !colorInput || colorReset ? "" : colorInput.value,
+        align: alignEl ? alignEl.value : "",
+        /* Position only via drag on the page — keep current offsets when saving */
+        x: keepPosition ? String(Math.round(clampNumber(x, -400, 400, 0))) : "0",
+        y: keepPosition ? String(Math.round(clampNumber(y, -400, 400, 0))) : "0"
+      };
+      return keepPosition ? normalizeFieldStyle(style) : designOnlyStyle(style);
+    }
+    panel.querySelector("#field-editor-copy-box").addEventListener("click", function () {
+      var style = collectStyleFromPanel(true);
+      var payload;
+      if (copyWidgetType) {
+        payload = {
+          kind: "widget",
+          widgetType: copyWidgetType,
+          scene: sceneId,
+          x: style.x,
+          y: style.y
+        };
+      } else {
+        var look = captureElementLook(el, style);
+        if (isCustomBox) {
+          var existing = findTextBox(currentWedding(), textBoxId(path));
+          if (existing && existing.fontSizePx) look.fontSizePx = String(existing.fontSizePx);
+        }
+        payload = {
+          kind: "textbox",
+          scene: sceneId,
+          text: box.value,
+          size: look.size,
+          letter: look.letter,
+          spacing: look.spacing,
+          font: look.font,
+          color: look.color,
+          align: look.align || "center",
+          x: look.x,
+          y: look.y,
+          fontSizePx: look.fontSizePx || ""
+        };
+      }
+      writeBoxClipboard(payload);
+      var pasteBtn = panel.querySelector("#field-editor-paste-box");
+      pasteBtn.disabled = false;
+      pasteBtn.textContent = (payload.kind === "widget"
+        ? (payload.widgetType === "map" ? "Tampal Google Maps"
+          : payload.widgetType === "waze" ? "Tampal Waze"
+            : "Tampal kiraan undur")
+        : "Tampal kotak teks") + " ✓";
+    });
+    panel.querySelector("#field-editor-paste-box").addEventListener("click", function () {
+      var clip = readBoxClipboard();
+      if (!clip) return;
+      pasteTextBox(sceneId, clip);
+    });
+    panel.querySelector("#field-editor-close").addEventListener("click", closeFieldEditor);
+    panel.querySelector("#field-editor-save").addEventListener("click", function () {
+      var style = collectStyleFromPanel(true);
+      if (isCustomBox) {
+        var currentBox = findTextBox(currentWedding(), textBoxId(path));
+        if (currentBox && currentBox.fontSizePx) style.fontSizePx = String(currentBox.fontSizePx);
+        else {
+          var look = captureElementLook(el, style);
+          if (look.fontSizePx) style.fontSizePx = look.fontSizePx;
+        }
+      }
+      saveFieldEditor(path, box.value, style);
+    });
+    panel.querySelector("#field-editor-delete").addEventListener("click", function () {
+      if (isCountdownBox) {
+        saveFieldEditor(path, box.value, normalizeFieldStyle({
+          size: "100",
+          letter: "100",
+          spacing: "100",
+          font: "",
+          color: "",
+          align: "",
+          x: "0",
+          y: "0"
+        }));
+        return;
+      }
+      if (isWidget) {
+        if (window.confirm("Padam salinan widget ini?")) deleteWidget(path);
+        return;
+      }
+      if (isCustomBox) {
+        if (window.confirm("Padam kotak teks ini?")) deleteTextBox(path);
+        return;
+      }
+      if (window.confirm("Padam teks ini? Ruang akan dikosongkan.")) {
+        saveFieldEditor(path, "", collectStyleFromPanel(true));
+      }
+    });
+    box.addEventListener("keydown", function (event) {
+      if (event.key !== "Tab") return;
+      /* Tab moves to the next control — use Enter for a new line */
+      event.preventDefault();
+      var focusables = panel.querySelectorAll(
+        "textarea, select, input, button:not([disabled])"
+      );
+      var list = Array.prototype.filter.call(focusables, function (node) {
+        return !node.disabled && node.offsetParent !== null;
+      });
+      var index = list.indexOf(box);
+      if (index === -1) return;
+      var next = event.shiftKey
+        ? list[(index - 1 + list.length) % list.length]
+        : list[(index + 1) % list.length];
+      if (next) next.focus();
+    });
+    placeFieldEditor(panel, el);
+    box.focus();
+    box.select();
+  }
+
+  function placeFieldEditor(panel, el) {
+    var rect = el.getBoundingClientRect();
+    var width = Math.min(340, window.innerWidth - 24);
+    var left = Math.max(12, Math.min(rect.left, window.innerWidth - width - 12));
+    var top = rect.bottom + 10;
+    panel.style.width = width + "px";
+    panel.style.left = left + "px";
+    panel.style.top = top + "px";
+    requestAnimationFrame(function () {
+      var box = panel.getBoundingClientRect();
+      if (box.bottom > window.innerHeight - 12) {
+        panel.style.top = Math.max(12, rect.top - box.height - 10) + "px";
+      }
+    });
+  }
+
+  function saveFieldEditor(path, text, styleSpec) {
+    closeFieldEditor();
+    persistFieldPatch(path, text, styleSpec);
+  }
+
+  function closeFieldEditor() {
+    var panel = document.getElementById("field-editor");
+    if (panel) panel.remove();
+  }
+
   function mountEditor() {
     if (document.querySelector(".edit-launch")) return;
     var button = document.createElement("button");
     button.type = "button";
     button.className = "edit-launch";
-    button.textContent = "Edit";
+    button.textContent = "Sunting";
     button.setAttribute("aria-haspopup", "dialog");
     button.addEventListener("click", openEditor);
     document.body.appendChild(button);
@@ -1609,15 +2944,15 @@
     var card = editorCard();
     if (!card) return;
     card.innerHTML =
-      '<h2 id="edit-title">Edit invitation</h2>' +
-      '<p class="editor-note">The password opens the wording. Save keeps it in this browser.</p>' +
+      '<h2 id="edit-title">Sunting jemputan</h2>' +
+      '<p class="editor-note">Kata laluan membuka teks. Simpan kekal dalam pelayar ini.</p>' +
       '<form id="edit-gate">' +
-      '<label class="editor-field"><span>Password</span>' +
+      '<label class="editor-field"><span>Kata laluan</span>' +
       '<input id="edit-password" type="password" autocomplete="current-password" required></label>' +
       '<p class="editor-error" id="edit-error" hidden></p>' +
       '<div class="editor-actions">' +
-      '<button class="button" type="submit">Continue</button>' +
-      '<button class="text-button" id="edit-close" type="button">Close</button>' +
+      '<button class="button" type="submit">Teruskan</button>' +
+      '<button class="text-button" id="edit-close" type="button">Tutup</button>' +
       "</div></form>";
     card.querySelector("#edit-close").addEventListener("click", closeEditor);
     card.querySelector("#edit-gate").addEventListener("submit", function (event) {
@@ -1633,14 +2968,15 @@
       var expected = String(base.adminPasswordHash || "").toLowerCase();
       if (!expected || !sameText(digest, expected)) {
         error.hidden = false;
-        error.textContent = "That password does not match.";
+        error.textContent = "Kata laluan tidak sepadan.";
         return;
       }
       sessionStorage.setItem("wedding-admin-open", "yes");
+      document.documentElement.classList.add("is-field-edit");
       showEditFields();
     }).catch(function () {
       error.hidden = false;
-      error.textContent = "This browser could not check the password.";
+      error.textContent = "Pelayar ini tidak dapat menyemak kata laluan.";
     });
   }
 
@@ -1649,74 +2985,82 @@
     if (!card) return;
     var wedding = currentWedding();
     card.innerHTML =
-      '<h2 id="edit-title">Edit invitation</h2>' +
-      '<p class="editor-note">Save keeps these words on the invitation in this browser.</p>' +
+      '<h2 id="edit-title">Sunting jemputan</h2>' +
+      '<p class="editor-note">Simpan kekalkan teks jemputan dalam pelayar ini.</p>' +
+      '<p class="editor-note">Pada kad: klik teks untuk sunting. Seret untuk alih kedudukan.</p>' +
       '<p class="editor-note" id="edit-save-note" hidden></p>' +
       '<form id="edit-form">' +
-      editBlock("Names and date", [
-        editField("First partner", "partnerOne", wedding.partnerOne),
-        editField("Second partner", "partnerTwo", wedding.partnerTwo),
-        editField("Weekday", "date.weekday", wedding.date.weekday),
-        editField("Day", "date.day", wedding.date.day),
-        editField("Month", "date.month", wedding.date.month),
-        editField("Year", "date.year", wedding.date.year),
-        editField("Time", "date.time", wedding.date.time),
-        editField("Opening line", "opening.kicker", wedding.opening.kicker)
+      editBlock("Nama dan tarikh", [
+        editField("Nama kulit 1", "opening.nameOne", wedding.opening.nameOne || wedding.partnerOne),
+        editField("Tanda & kulit", "opening.amp", wedding.opening.amp || "&"),
+        editField("Nama kulit 2", "opening.nameTwo", wedding.opening.nameTwo || wedding.partnerTwo),
+        editField("Hari", "date.weekday", wedding.date.weekday),
+        editField("Tarikh", "date.day", wedding.date.day),
+        editField("Bulan", "date.month", wedding.date.month),
+        editField("Tahun", "date.year", wedding.date.year),
+        editField("Masa", "date.time", wedding.date.time),
+        editField("Baris pembuka", "opening.kicker", wedding.opening.kicker)
       ]) +
-      editBlock("Couple", [
-        editField("Heading", "couple.kicker", wedding.couple.kicker),
-        editArea("First partner line", "couple.oneLine", wedding.couple.oneLine),
-        editArea("Second partner line", "couple.twoLine", wedding.couple.twoLine),
-        editArea("Note", "couple.note", wedding.couple.note || "")
+      editBlock("Pengantin", [
+        editField("Tajuk", "couple.kicker", wedding.couple.kicker),
+        editField("Nama halaman 2 — 1", "partnerOne", wedding.partnerOne),
+        editField("Tanda & halaman 2", "couple.amp", wedding.couple.amp || "&"),
+        editField("Nama halaman 2 — 2", "partnerTwo", wedding.partnerTwo),
+        editArea("Baris pasangan pertama", "couple.oneLine", wedding.couple.oneLine),
+        editArea("Baris pasangan kedua", "couple.twoLine", wedding.couple.twoLine),
+        editArea("Nota", "couple.note", wedding.couple.note || "")
       ]) +
-      editBlock("Solemnization and reception", [
-        editField("Heading", "celebration.heading", wedding.celebration.heading),
-        editField("Date line", "celebration.dateLine", wedding.celebration.dateLine || (
+      editBlock("Akad dan majlis", [
+        editField("Tajuk", "celebration.heading", wedding.celebration.heading),
+        editField("Baris tarikh", "celebration.dateLine", wedding.celebration.dateLine || (
           wedding.date.weekday + " " + wedding.date.day + " " + wedding.date.month + " " +
           wedding.date.year + " · " + wedding.date.time
         )),
-        editField("Solemnization", "celebration.ceremony.label", wedding.celebration.ceremony.label),
-        editField("Solemnization time", "celebration.ceremony.time", wedding.celebration.ceremony.time),
-        editField("Solemnization place", "celebration.ceremony.place", wedding.celebration.ceremony.place),
-        editArea("Solemnization words", "celebration.ceremony.detail", wedding.celebration.ceremony.detail),
-        editField("Reception", "celebration.reception.label", wedding.celebration.reception.label),
-        editField("Reception time", "celebration.reception.time", wedding.celebration.reception.time),
-        editField("Reception place", "celebration.reception.place", wedding.celebration.reception.place),
-        editArea("Reception words", "celebration.reception.detail", wedding.celebration.reception.detail),
-        editField("Attire label", "celebration.attire.label", wedding.celebration.attire.label),
-        editArea("Attire", "celebration.attire.text", wedding.celebration.attire.text),
-        editArea("Note", "celebration.note", wedding.celebration.note || "")
+        editField("Akad", "celebration.ceremony.label", wedding.celebration.ceremony.label),
+        editField("Masa akad", "celebration.ceremony.time", wedding.celebration.ceremony.time),
+        editField("Tempat akad", "celebration.ceremony.place", wedding.celebration.ceremony.place),
+        editArea("Butiran akad", "celebration.ceremony.detail", wedding.celebration.ceremony.detail),
+        editField("Majlis", "celebration.reception.label", wedding.celebration.reception.label),
+        editField("Masa majlis", "celebration.reception.time", wedding.celebration.reception.time),
+        editField("Tempat majlis", "celebration.reception.place", wedding.celebration.reception.place),
+        editArea("Butiran majlis", "celebration.reception.detail", wedding.celebration.reception.detail),
+        editField("Label pakaian", "celebration.attire.label", wedding.celebration.attire.label),
+        editArea("Pakaian", "celebration.attire.text", wedding.celebration.attire.text),
+        editArea("Nota", "celebration.note", wedding.celebration.note || "")
       ]) +
-      editBlock("Location", [
-        editField("Heading", "place.heading", wedding.place.heading),
-        editField("Venue", "venue.name", wedding.venue.name),
-        editField("Street", "venue.street", wedding.venue.street),
-        editArea("Venue note", "place.note", wedding.place.note || ""),
-        editField("Maps label", "venue.mapLabel", wedding.venue.mapLabel),
-        editField("Maps link", "venue.mapUrl", wedding.venue.mapUrl),
-        editField("Waze label", "place.wazeLabel", wedding.place.wazeLabel),
-        editField("Waze link", "place.wazeUrl", wedding.place.wazeUrl),
+      editBlock("Lokasi", [
+        editField("Tajuk", "place.heading", wedding.place.heading),
+        editField("Tempat", "venue.name", wedding.venue.name),
+        editField("Alamat", "venue.street", wedding.venue.street),
+        editArea("Nota tempat", "place.note", wedding.place.note || ""),
+        editField("Label peta", "venue.mapLabel", wedding.venue.mapLabel),
+        editField("Pautan peta", "venue.mapUrl", wedding.venue.mapUrl),
+        editField("Label Waze", "place.wazeLabel", wedding.place.wazeLabel),
+        editField("Pautan Waze", "place.wazeUrl", wedding.place.wazeUrl),
         editTimeline(wedding.place.timeline)
       ]) +
-      editBlock("Reply, wishes, and closing", [
-        editField("Reply heading", "rsvp.heading", wedding.rsvp.heading),
-        editArea("Reply introduction", "rsvp.intro", wedding.rsvp.intro),
-        editArea("Reply note", "rsvp.note", wedding.rsvp.note || ""),
-        editField("Wishes heading", "guestbook.heading", wedding.guestbook.heading),
-        editArea("Wishes introduction", "guestbook.intro", wedding.guestbook.intro),
-        editArea("Thank you", "closing.thankYou", wedding.closing.thankYou),
-        editField("Prayer label", "closing.prayerLabel", wedding.closing.prayerLabel),
-        editArea("Closing prayer", "closing.prayer", wedding.closing.prayer),
-        editField("Sign-off", "closing.closing", wedding.closing.closing),
-        editArea("Closing note", "closing.note", wedding.closing.note || ""),
-        editField("Nav: location", "nav.location", wedding.nav.location),
-        editField("Nav: wishes", "nav.wishes", wedding.nav.wishes),
-        editField("Nav: reply", "nav.rsvp", wedding.nav.rsvp)
+      editBlock("Balasan, ucapan, dan penutup", [
+        editField("Tajuk balasan", "rsvp.heading", wedding.rsvp.heading),
+        editArea("Pengenalan balasan", "rsvp.intro", wedding.rsvp.intro),
+        editArea("Nota balasan", "rsvp.note", wedding.rsvp.note || ""),
+        editField("Tajuk ucapan", "guestbook.heading", wedding.guestbook.heading),
+        editArea("Pengenalan ucapan", "guestbook.intro", wedding.guestbook.intro),
+        editArea("Ucapan terima kasih", "closing.thankYou", wedding.closing.thankYou),
+        editField("Label doa", "closing.prayerLabel", wedding.closing.prayerLabel),
+        editArea("Doa penutup", "closing.prayer", wedding.closing.prayer),
+        editField("Penutup", "closing.closing", wedding.closing.closing),
+        editArea("Nota penutup", "closing.note", wedding.closing.note || ""),
+        editField("Tandatangan nama", "closing.signature", wedding.closing.signature || (
+          firstName(wedding.partnerOne) + " & " + firstName(wedding.partnerTwo)
+        )),
+        editField("Nav: lokasi", "nav.location", wedding.nav.location),
+        editField("Nav: ucapan", "nav.wishes", wedding.nav.wishes),
+        editField("Nav: balasan", "nav.rsvp", wedding.nav.rsvp)
       ]) +
       '<div class="editor-actions">' +
-      '<button class="button" type="submit">Save</button>' +
-      '<button class="text-button" id="edit-reset" type="button">Use the file again</button>' +
-      '<button class="text-button" id="edit-close" type="button">Close</button>' +
+      '<button class="button" type="submit">Simpan</button>' +
+      '<button class="text-button" id="edit-reset" type="button">Guna fail semula</button>' +
+      '<button class="text-button" id="edit-close" type="button">Tutup</button>' +
       "</div></form>";
     var form = card.querySelector("#edit-form");
     form.addEventListener("submit", saveEditor);
@@ -1734,13 +3078,15 @@
   function saveEditor(event) {
     event.preventDefault();
     var data = collectEditor(event.target);
+    var current = currentWedding();
+    data.textStyle = cloneTree(current.textStyle || {});
     writeStore("wedding-card-published", data);
     writeStore("wedding-card-draft", data);
     paint(mergeWedding(base, data), true);
     var note = document.getElementById("edit-save-note");
     if (note) {
       note.hidden = false;
-      note.textContent = "Saved in this browser.";
+      note.textContent = "Disimpan dalam pelayar ini.";
     }
   }
 
@@ -1753,7 +3099,7 @@
     var note = document.getElementById("edit-save-note");
     if (note) {
       note.hidden = false;
-      note.textContent = "The invitation is using content.js again.";
+      note.textContent = "Jemputan menggunakan content.js semula.";
     }
   }
 
@@ -1810,9 +3156,9 @@
     for (index = 0; index < 4; index += 1) {
       var item = (items && items[index]) || { time: "", title: "", detail: "" };
       rows +=
-        editField("Programme " + (index + 1) + " time", "timeline." + index + ".time", item.time || "") +
-        editField("Programme " + (index + 1) + " title", "timeline." + index + ".title", item.title || "") +
-        editField("Programme " + (index + 1) + " detail", "timeline." + index + ".detail", item.detail || "");
+        editField("Atur cara " + (index + 1) + " masa", "timeline." + index + ".time", item.time || "") +
+        editField("Atur cara " + (index + 1) + " tajuk", "timeline." + index + ".title", item.title || "") +
+        editField("Atur cara " + (index + 1) + " butiran", "timeline." + index + ".detail", item.detail || "");
     }
     return rows;
   }

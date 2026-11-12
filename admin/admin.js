@@ -9,14 +9,21 @@
   var SESSION_KEY = "wedding-admin-open";
   var SCENE_IDS = ["opening", "couple", "celebration", "place", "closing"];
   var SCENE_NAMES = {
-    opening: "Opening",
-    couple: "Couple introduction",
-    celebration: "Solemnization and reception",
-    place: "Location and programme",
-    closing: "Closing",
+    opening: "Kulit",
+    couple: "Pengenalan pengantin",
+    celebration: "Akad dan majlis",
+    place: "Lokasi dan atur cara",
+    closing: "Penutup",
   };
   var activeStyles = {};
-  var plainFields = { music: true, "venue.mapUrl": true, "place.wazeUrl": true, "place.photos": true };
+  var plainFields = {
+    music: true,
+    "venue.mapLabel": true,
+    "venue.mapUrl": true,
+    "place.wazeLabel": true,
+    "place.wazeUrl": true,
+    "place.photos": true
+  };
 
   if (!base || !gate || !form) return;
 
@@ -31,26 +38,32 @@
       var expected = String(base.adminPasswordHash || "").toLowerCase();
       if (!expected || !sameText(digest, expected)) {
         error.hidden = false;
-        error.textContent = "That password does not match.";
+        error.textContent = "Kata laluan tidak sepadan.";
         return;
       }
       sessionStorage.setItem(SESSION_KEY, "yes");
       openStudio();
     }).catch(function () {
       error.hidden = false;
-      error.textContent = "This browser could not check the password.";
+      error.textContent = "Pelayar ini tidak dapat menyemak kata laluan.";
     });
   }
 
   function openStudio() {
     gate.hidden = true;
     studio.hidden = false;
+    /* Always reload preview with cache-bust so admin matches guest code */
+    if (preview) {
+      preview.src = "../?preview=draft&v=edit27&t=" + Date.now();
+    }
     buildForm(loadDraft());
+    sendPreview(loadDraft());
     if (form.dataset.bound === "yes") return;
     form.dataset.bound = "yes";
     form.addEventListener("input", onEdit);
-    form.addEventListener("keydown", onTabBreak);
+    form.addEventListener("change", onEdit);
     form.addEventListener("submit", onSave);
+    window.addEventListener("message", onPreviewMessage);
     form.addEventListener("click", function (event) {
       if (event.target.id === "reset-card") {
         event.preventDefault();
@@ -96,35 +109,109 @@
     });
   }
 
-  function onTabBreak(event) {
-    if (event.key !== "Tab" || event.altKey || event.ctrlKey || event.metaKey) return;
-    var box = event.target;
-    var isText = box && (box.tagName === "TEXTAREA" || (box.tagName === "INPUT" && box.type === "text"));
-    if (!isText) return;
-    event.preventDefault();
-    var start = box.selectionStart;
-    var end = box.selectionEnd;
-    var value = box.value;
-    box.value = value.slice(0, start) + "\n" + value.slice(end);
-    box.selectionStart = box.selectionEnd = start + 1;
-    box.dispatchEvent(new Event("input", { bubbles: true }));
+  function isStyleLeaf(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+    return (
+      "size" in value || "letter" in value || "spacing" in value ||
+      "x" in value || "y" in value || "font" in value || "color" in value || "align" in value
+    );
+  }
+
+  function mergeStyleTree(target, extra) {
+    if (!target || typeof target !== "object") target = {};
+    if (!extra || typeof extra !== "object" || Array.isArray(extra)) return target;
+    Object.keys(extra).forEach(function (key) {
+      var value = extra[key];
+      if (!value || typeof value !== "object" || Array.isArray(value)) return;
+      if (isStyleLeaf(value)) {
+        target[key] = Object.assign({}, target[key] || {}, value);
+        return;
+      }
+      if (!target[key] || typeof target[key] !== "object" || Array.isArray(target[key]) || isStyleLeaf(target[key])) {
+        target[key] = {};
+      }
+      mergeStyleTree(target[key], value);
+    });
+    return target;
+  }
+
+  function cloneStyle(value) {
+    if (!value || typeof value !== "object") return value;
+    if (Array.isArray(value)) return value.map(cloneStyle);
+    var copy = {};
+    Object.keys(value).forEach(function (key) { copy[key] = cloneStyle(value[key]); });
+    return copy;
+  }
+
+  function deepMergePatch(target, patch) {
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) return target;
+    Object.keys(patch).forEach(function (key) {
+      if (key === "textStyle") return;
+      var value = patch[key];
+      if (Array.isArray(value)) {
+        target[key] = value.map(function (item) {
+          return item && typeof item === "object" ? cloneStyle(item) : item;
+        });
+        return;
+      }
+      if (value && typeof value === "object") {
+        if (!target[key] || typeof target[key] !== "object" || Array.isArray(target[key])) target[key] = {};
+        deepMergePatch(target[key], value);
+        return;
+      }
+      target[key] = value;
+    });
+    return target;
+  }
+
+  function commitDraft(alsoPublish) {
+    var existing = readStore(DRAFT_KEY) || readStore(PUBLISHED_KEY) || {};
+    var collected = collect();
+    var draft = deepMergePatch(cloneStyle(existing), collected);
+    draft.textStyle = mergeStyleTree(cloneStyle(existing.textStyle || {}), collected.textStyle || {});
+    if (Array.isArray(existing.textBoxes)) draft.textBoxes = cloneStyle(existing.textBoxes);
+    if (Array.isArray(existing.widgets)) draft.widgets = cloneStyle(existing.widgets);
+    draft.sceneOrder = collected.sceneOrder && collected.sceneOrder.length ? collected.sceneOrder.slice() : draft.sceneOrder;
+    if (collected.place && Array.isArray(collected.place.timeline)) {
+      draft.place = draft.place || {};
+      draft.place.timeline = collected.place.timeline;
+    }
+    if (collected.place && Array.isArray(collected.place.photos)) {
+      draft.place = draft.place || {};
+      draft.place.photos = collected.place.photos.slice();
+    }
+    if (collected.contact && Array.isArray(collected.contact.people)) {
+      draft.contact = draft.contact || {};
+      draft.contact.people = collected.contact.people.map(function (person) {
+        return {
+          role: person.role || "",
+          name: person.name || "",
+          phone: person.phone || ""
+        };
+      });
+      draft.contact.role = draft.contact.people[0] ? draft.contact.people[0].role : "";
+      draft.contact.name = draft.contact.people[0] ? draft.contact.people[0].name : "";
+      draft.contact.phone = draft.contact.people[0] ? draft.contact.people[0].phone : "";
+    }
+    writeStore(DRAFT_KEY, draft);
+    /* Always mirror to published so the guest page matches admin */
+    writeStore(PUBLISHED_KEY, cloneStyle(draft));
+    sendPreview(draft);
+    return draft;
   }
 
   function onEdit() {
-    var draft = collect();
-    writeStore(DRAFT_KEY, draft);
-    sendPreview(draft);
+    commitDraft(false);
   }
 
   function onSave(event) {
     event.preventDefault();
-    var draft = collect();
-    writeStore(DRAFT_KEY, draft);
-    writeStore(PUBLISHED_KEY, draft);
-    sendPreview(draft);
+    commitDraft(true);
     var note = form.querySelector("#save-note");
-    note.hidden = false;
-    note.textContent = "Saved. This browser’s invitation at / now uses these words, text size, and spacing.";
+    if (note) {
+      note.hidden = false;
+      note.textContent = "Disimpan. PC sama: buka jemputan di tab ini (Ctrl+Shift+R). Telefon: Muat turun content.js dan ganti fail dalam folder projek.";
+    }
   }
 
   function onReset() {
@@ -132,11 +219,12 @@
     localStorage.removeItem(PUBLISHED_KEY);
     localStorage.removeItem("wedding-card-edits");
     buildForm(null);
-    sendPreview(null);
+    sendPreview({});
   }
 
   function onDownload() {
-    var merged = mergeForExport(collect());
+    var draft = commitDraft(true);
+    var merged = mergeForExport(draft);
     var blob = new Blob(["window.WEDDING = " + JSON.stringify(merged, null, 2) + ";\n"], { type: "text/javascript" });
     var link = document.createElement("a");
     link.href = URL.createObjectURL(blob);
@@ -146,8 +234,34 @@
   }
 
   function sendPreview(draft) {
-    if (!preview.contentWindow) return;
-    preview.contentWindow.postMessage({ type: "wedding-preview", payload: draft }, window.location.origin);
+    if (!preview) return;
+    var payload = draft || {};
+    var send = function () {
+      if (!preview.contentWindow) return;
+      try {
+        preview.contentWindow.postMessage({ type: "wedding-enable-edit" }, window.location.origin);
+        preview.contentWindow.postMessage({ type: "wedding-preview", payload: payload }, window.location.origin);
+      } catch (error) {}
+    };
+    send();
+    setTimeout(send, 60);
+    setTimeout(send, 250);
+    preview.addEventListener("load", function onLoad() {
+      preview.removeEventListener("load", onLoad);
+      send();
+    });
+  }
+
+  function onPreviewMessage(event) {
+    if (event.origin !== window.location.origin) return;
+    if (!event.data || event.data.type !== "wedding-field-saved") return;
+    var payload = event.data.payload;
+    if (!payload || typeof payload !== "object") return;
+    writeStore(DRAFT_KEY, payload);
+    writeStore(PUBLISHED_KEY, payload);
+    var active = document.activeElement;
+    if (active && form.contains(active)) return;
+    buildForm(payload);
   }
 
   function buildForm(extra) {
@@ -162,25 +276,27 @@
   function writeForm(wedding) {
     ensureAdminShape(wedding);
     activeStyles = (wedding.textStyle && typeof wedding.textStyle === "object" && !Array.isArray(wedding.textStyle)) ? wedding.textStyle : {};
-    var photos = Array.isArray(wedding.place.photos) ? wedding.place.photos : [];
     form.innerHTML =
-      "<h1>Edit invitation</h1>" +
-      '<p class="admin-note">The preview uses your draft as you type. Save is what / shows in this browser. content.js stays the file default until you replace it.</p>' +
+      "<h1>Admin jemputan</h1>" +
+      '<p class="admin-note">Teks, fon, warna, dan kedudukan: klik sekali pada teks dalam pratonton di kanan. Seret untuk alih. Guna Salin / Tampal kotak teks untuk pendua dalam seksyen yang sama.</p>' +
+      '<p class="admin-note">Simpan = kekal dalam pelayar ini. Halaman tetamu PC sama: <a href="../?v=edit27" target="_blank" rel="noopener">buka jemputan</a> (Ctrl+Shift+R). Telefon: Muat turun content.js.</p>' +
       '<p class="admin-note" id="save-note" hidden></p>' +
-      pageFields(wedding, photos) +
-      orderBlock(wedding.sceneOrder) +
-      block("Music", [
-        field("Music file", "music", readText(wedding, "music")),
+      block("Pautan peta", [
+        field("Label Google Maps", "venue.mapLabel", readText(wedding, "venue.mapLabel")),
+        field("Pautan Google Maps", "venue.mapUrl", readText(wedding, "venue.mapUrl")),
+        field("Label Waze", "place.wazeLabel", readText(wedding, "place.wazeLabel")),
+        field("Pautan Waze", "place.wazeUrl", readText(wedding, "place.wazeUrl"))
+      ]) +
+      block("Muzik", [
+        field("Fail muzik / URL", "music", readText(wedding, "music"))
       ]) +
       contactBlock(wedding) +
       responsesBlock() +
       '<div class="admin-actions">' +
-      '<button class="button" type="submit">Save</button>' +
-      '<button class="text-button" id="download-card" type="button">Download content.js</button>' +
-      '<button class="text-button" id="reset-card" type="button">Use the file again</button>' +
+      '<button class="button" type="submit">Simpan</button>' +
+      '<button class="text-button" id="download-card" type="button">Muat turun content.js</button>' +
+      '<button class="text-button" id="reset-card" type="button">Guna fail semula</button>' +
       "</div>";
-    bindOrder();
-    bindRanges();
   }
 
   function readGuestbook() {
@@ -202,8 +318,8 @@
   }
 
   function attendanceLabel(value) {
-    if (value === "yes") return "Joyfully accepts";
-    if (value === "no") return "Regretfully declines";
+    if (value === "yes") return "Hadir";
+    if (value === "no") return "Tidak Hadir";
     return "";
   }
 
@@ -215,27 +331,27 @@
       ? wishes.map(function (wish, index) {
           return (
             '<article class="response-card">' +
-            '<label class="editor-field"><span>Name</span>' +
+            '<label class="editor-field"><span>Nama</span>' +
             '<input data-wish-name="' + index + '" type="text" value="' + escapeAttr(wish.name || "") + '"></label>' +
-            '<label class="editor-field"><span>Attendance</span>' +
+            '<label class="editor-field"><span>Kehadiran</span>' +
             '<select data-wish-attendance="' + index + '">' +
-            '<option value="yes"' + (wish.attendance === "yes" ? " selected" : "") + ">Joyfully accepts</option>" +
-            '<option value="no"' + (wish.attendance === "no" ? " selected" : "") + ">Regretfully declines</option>" +
-            '<option value=""' + (!wish.attendance ? " selected" : "") + ">Not set</option>" +
+            '<option value="yes"' + (wish.attendance === "yes" ? " selected" : "") + ">Hadir</option>" +
+            '<option value="no"' + (wish.attendance === "no" ? " selected" : "") + ">Tidak Hadir</option>" +
+            '<option value=""' + (!wish.attendance ? " selected" : "") + ">Belum ditetapkan</option>" +
             "</select></label>" +
-            '<label class="editor-field"><span>Note</span>' +
+            '<label class="editor-field"><span>Nota</span>' +
             '<textarea data-wish-message="' + index + '" rows="3">' + escapeHtml(wish.message || "") + "</textarea></label>" +
             '<div class="response-actions">' +
-            '<button class="button" type="button" data-save-wish="' + index + '">Save edit</button>' +
-            '<button class="text-button" type="button" data-delete-wish="' + index + '">Delete</button>' +
+            '<button class="button" type="button" data-save-wish="' + index + '">Simpan suntingan</button>' +
+            '<button class="text-button" type="button" data-delete-wish="' + index + '">Padam</button>' +
             "</div></article>"
           );
         }).join("")
-      : '<p class="admin-note">No guest responses yet.</p>';
+      : '<p class="admin-note">Belum ada balasan tetamu.</p>';
     return (
-      '<fieldset class="response-block"><legend>Guest responses</legend>' +
-      '<p class="admin-note">' + wishes.length + " total · " + accept + " attending · " + decline + " declining</p>" +
-      '<button class="button" id="export-responses" type="button">Download Excel sheet</button>' +
+      '<fieldset class="response-block"><legend>Balasan tetamu</legend>' +
+      '<p class="admin-note">' + wishes.length + " jumlah · " + accept + " hadir · " + decline + " tidak hadir</p>" +
+      '<button class="button" id="export-responses" type="button">Muat turun helaian Excel</button>' +
       '<div class="response-list">' + rows + "</div></fieldset>"
     );
   }
@@ -248,7 +364,7 @@
     var messageInput = form.querySelector('[data-wish-message="' + index + '"]');
     var name = String(nameInput && nameInput.value || "").replace(/\s+/g, " ").trim();
     if (!name) {
-      window.alert("Please keep a guest name.");
+      window.alert("Sila kekalkan nama tetamu.");
       return;
     }
     wishes[index] = {
@@ -263,7 +379,7 @@
   function deleteWishAt(index) {
     var wishes = readGuestbook();
     if (!wishes[index]) return;
-    if (!window.confirm("Delete this guest response?")) return;
+    if (!window.confirm("Padam balasan tetamu ini?")) return;
     wishes.splice(index, 1);
     writeGuestbook(wishes);
     buildForm(loadDraft());
@@ -271,7 +387,7 @@
 
   function exportResponses() {
     var wishes = readGuestbook();
-    var lines = ["Name,Attendance,Note"];
+    var lines = ["Nama,Kehadiran,Nota"];
     wishes.forEach(function (wish) {
       lines.push([
         csvCell(wish.name || ""),
@@ -308,76 +424,116 @@
 
   function pageFields(wedding, photos) {
     var pages = {
-      opening: block("Cover", [
-        field("Kicker", "opening.kicker", readText(wedding, "opening.kicker")),
-        field("First partner", "partnerOne", readText(wedding, "partnerOne")),
-        field("Second partner", "partnerTwo", readText(wedding, "partnerTwo")),
-        field("Weekday", "date.weekday", readText(wedding, "date.weekday")),
-        field("Day", "date.day", readText(wedding, "date.day")),
-        field("Month", "date.month", readText(wedding, "date.month")),
-        field("Year", "date.year", readText(wedding, "date.year")),
-        field("Time", "date.time", readText(wedding, "date.time")),
-        area("Quotation", "announcement.quotation", readText(wedding, "announcement.quotation")),
-        field("Quotation source", "announcement.quotationSource", readText(wedding, "announcement.quotationSource")),
-        field("Continue button", "opening.continueLabel", readText(wedding, "opening.continueLabel")),
+      opening: block("Kulit", [
+        field("Baris pembuka", "opening.kicker", readText(wedding, "opening.kicker")),
+        field("Nama kulit 1", "opening.nameOne", readText(wedding, "opening.nameOne") || readText(wedding, "partnerOne")),
+        field("Tanda & kulit", "opening.amp", readText(wedding, "opening.amp") || "&"),
+        field("Nama kulit 2", "opening.nameTwo", readText(wedding, "opening.nameTwo") || readText(wedding, "partnerTwo")),
+        field("Hari", "date.weekday", readText(wedding, "date.weekday")),
+        field("Tarikh", "date.day", readText(wedding, "date.day")),
+        field("Bulan", "date.month", readText(wedding, "date.month")),
+        field("Tahun", "date.year", readText(wedding, "date.year")),
+        field("Masa", "date.time", readText(wedding, "date.time")),
+        area("Petikan", "announcement.quotation", readText(wedding, "announcement.quotation")),
+        field("Sumber petikan", "announcement.quotationSource", readText(wedding, "announcement.quotationSource")),
+        field("Butang teruskan", "opening.continueLabel", readText(wedding, "opening.continueLabel")),
       ]),
-      couple: block("Couple", [
-        field("Heading", "couple.kicker", readText(wedding, "couple.kicker")),
-        area("First partner line", "couple.oneLine", readText(wedding, "couple.oneLine")),
-        area("Second partner line", "couple.twoLine", readText(wedding, "couple.twoLine")),
-        area("Sample note", "couple.note", readText(wedding, "couple.note")),
+      couple: block("Pengantin", [
+        field("Tajuk", "couple.kicker", readText(wedding, "couple.kicker")),
+        field("Nama halaman 2 — 1", "partnerOne", readText(wedding, "partnerOne")),
+        field("Tanda & halaman 2", "couple.amp", readText(wedding, "couple.amp") || "&"),
+        field("Nama halaman 2 — 2", "partnerTwo", readText(wedding, "partnerTwo")),
+        area("Baris pasangan pertama", "couple.oneLine", readText(wedding, "couple.oneLine")),
+        area("Baris pasangan kedua", "couple.twoLine", readText(wedding, "couple.twoLine")),
+        area("Nota contoh", "couple.note", readText(wedding, "couple.note")),
       ]),
-      celebration: block("Solemnization and reception", [
-        field("Heading", "celebration.heading", readText(wedding, "celebration.heading")),
-        field("Date line", "celebration.dateLine", readText(wedding, "celebration.dateLine") || (
+      celebration: block("Akad dan majlis", [
+        field("Tajuk", "celebration.heading", readText(wedding, "celebration.heading")),
+        field("Baris tarikh", "celebration.dateLine", readText(wedding, "celebration.dateLine") || (
           readText(wedding, "date.weekday") + " " + readText(wedding, "date.day") + " " +
           readText(wedding, "date.month") + " " + readText(wedding, "date.year") + " · " +
           readText(wedding, "date.time")
         )),
-        field("Solemnization heading", "celebration.ceremony.label", readText(wedding, "celebration.ceremony.label")),
-        field("Solemnization time", "celebration.ceremony.time", readText(wedding, "celebration.ceremony.time")),
-        field("Solemnization place", "celebration.ceremony.place", readText(wedding, "celebration.ceremony.place")),
-        area("Solemnization words", "celebration.ceremony.detail", readText(wedding, "celebration.ceremony.detail")),
-        field("Reception heading", "celebration.reception.label", readText(wedding, "celebration.reception.label")),
-        field("Reception time", "celebration.reception.time", readText(wedding, "celebration.reception.time")),
-        field("Reception place", "celebration.reception.place", readText(wedding, "celebration.reception.place")),
-        area("Reception words", "celebration.reception.detail", readText(wedding, "celebration.reception.detail")),
-        field("Attire label", "celebration.attire.label", readText(wedding, "celebration.attire.label")),
-        area("Attire", "celebration.attire.text", readText(wedding, "celebration.attire.text")),
-        area("Sample note", "celebration.note", readText(wedding, "celebration.note")),
+        field("Tajuk akad", "celebration.ceremony.label", readText(wedding, "celebration.ceremony.label")),
+        field("Masa akad", "celebration.ceremony.time", readText(wedding, "celebration.ceremony.time")),
+        field("Tempat akad", "celebration.ceremony.place", readText(wedding, "celebration.ceremony.place")),
+        area("Butiran akad", "celebration.ceremony.detail", readText(wedding, "celebration.ceremony.detail")),
+        field("Tajuk majlis", "celebration.reception.label", readText(wedding, "celebration.reception.label")),
+        field("Masa majlis", "celebration.reception.time", readText(wedding, "celebration.reception.time")),
+        field("Tempat majlis", "celebration.reception.place", readText(wedding, "celebration.reception.place")),
+        area("Butiran majlis", "celebration.reception.detail", readText(wedding, "celebration.reception.detail")),
+        field("Label pakaian", "celebration.attire.label", readText(wedding, "celebration.attire.label")),
+        area("Pakaian", "celebration.attire.text", readText(wedding, "celebration.attire.text")),
+        area("Nota contoh", "celebration.note", readText(wedding, "celebration.note")),
       ]),
-      place: block("Location", [
-        field("Link label", "nav.location", readText(wedding, "nav.location")),
-        field("Heading", "place.heading", readText(wedding, "place.heading")),
-        field("Venue", "venue.name", readText(wedding, "venue.name")),
-        field("Countdown label", "countdown.label", readText(wedding, "countdown.label") || "Until the day"),
-        field("Street", "venue.street", readText(wedding, "venue.street")),
-        area("Venue note", "place.note", readText(wedding, "place.note")),
-        field("Google Maps label", "venue.mapLabel", readText(wedding, "venue.mapLabel")),
-        field("Google Maps link", "venue.mapUrl", readText(wedding, "venue.mapUrl")),
-        field("Waze label", "place.wazeLabel", readText(wedding, "place.wazeLabel")),
-        field("Waze link", "place.wazeUrl", readText(wedding, "place.wazeUrl")),
-        area("Photo file names, one per line", "place.photos", photos.join("\n")),
-        field("Empty photo note", "place.photoPlaceholder", readText(wedding, "place.photoPlaceholder")),
+      place: block("Lokasi", [
+        field("Label pautan", "nav.location", readText(wedding, "nav.location")),
+        field("Tajuk", "place.heading", readText(wedding, "place.heading")),
+        field("Tempat", "venue.name", readText(wedding, "venue.name")),
+        field("Label kiraan undur", "countdown.label", readText(wedding, "countdown.label") || "Ketibaan Pengantin"),
+        field("Alamat", "venue.street", readText(wedding, "venue.street")),
+        area("Nota tempat", "place.note", readText(wedding, "place.note")),
+        field("Label Google Maps", "venue.mapLabel", readText(wedding, "venue.mapLabel")),
+        field("Pautan Google Maps", "venue.mapUrl", readText(wedding, "venue.mapUrl")),
+        field("Label Waze", "place.wazeLabel", readText(wedding, "place.wazeLabel")),
+        field("Pautan Waze", "place.wazeUrl", readText(wedding, "place.wazeUrl")),
+        area("Nama fail foto, satu setiap baris", "place.photos", photos.join("\n")),
+        field("Nota foto kosong", "place.photoPlaceholder", readText(wedding, "place.photoPlaceholder")),
         timelineFields(wedding.place.timeline),
       ]),
       reply: block("RSVP", [
-        field("Link label", "nav.rsvp", readText(wedding, "nav.rsvp")),
-        field("Heading", "rsvp.heading", readText(wedding, "rsvp.heading")),
-        area("Introduction", "rsvp.intro", readText(wedding, "rsvp.intro")),
-        area("Note", "rsvp.note", readText(wedding, "rsvp.note")),
+        field("Label pautan", "nav.rsvp", readText(wedding, "nav.rsvp")),
+        field("Tajuk", "rsvp.heading", readText(wedding, "rsvp.heading")),
+        area("Pengenalan", "rsvp.intro", readText(wedding, "rsvp.intro")),
+        area("Nota", "rsvp.note", readText(wedding, "rsvp.note")),
+        field("Label nama", "rsvp.nameLabel", readText(wedding, "rsvp.nameLabel")),
+        field("Placeholder nama", "rsvp.namePlaceholder", readText(wedding, "rsvp.namePlaceholder")),
+        field("Soalan kehadiran", "rsvp.attendanceLabel", readText(wedding, "rsvp.attendanceLabel")),
+        field("Pilihan hadir", "rsvp.acceptLabel", readText(wedding, "rsvp.acceptLabel")),
+        field("Pilihan tidak hadir", "rsvp.declineLabel", readText(wedding, "rsvp.declineLabel")),
+        field("Label nota", "rsvp.noteLabel", readText(wedding, "rsvp.noteLabel")),
+        field("Placeholder nota", "rsvp.notePlaceholder", readText(wedding, "rsvp.notePlaceholder")),
+        field("Butang hantar", "rsvp.submitLabel", readText(wedding, "rsvp.submitLabel")),
+        field("Nota tempatan", "rsvp.localNote", readText(wedding, "rsvp.localNote")),
+        field("Tajuk disahkan", "rsvp.confirmedKicker", readText(wedding, "rsvp.confirmedKicker")),
+        area("Mesej hadir", "rsvp.acceptMessage", readText(wedding, "rsvp.acceptMessage")),
+        area("Mesej tidak hadir", "rsvp.declineMessage", readText(wedding, "rsvp.declineMessage")),
+        field("Ubah balasan", "rsvp.editLabel", readText(wedding, "rsvp.editLabel")),
+        field("Ralat nama", "rsvp.errorName", readText(wedding, "rsvp.errorName")),
+        field("Ralat kehadiran", "rsvp.errorAttendance", readText(wedding, "rsvp.errorAttendance")),
       ]),
-      wishes: block("Wishes", [
-        field("Link label", "nav.wishes", readText(wedding, "nav.wishes")),
-        field("Heading", "guestbook.heading", readText(wedding, "guestbook.heading")),
-        area("Introduction", "guestbook.intro", readText(wedding, "guestbook.intro")),
+      wishes: block("Ucapan", [
+        field("Label pautan", "nav.wishes", readText(wedding, "nav.wishes")),
+        field("Tajuk", "guestbook.heading", readText(wedding, "guestbook.heading")),
+        area("Pengenalan", "guestbook.intro", readText(wedding, "guestbook.intro")),
+        field("Label nama", "guestbook.nameLabel", readText(wedding, "guestbook.nameLabel")),
+        field("Placeholder nama", "guestbook.namePlaceholder", readText(wedding, "guestbook.namePlaceholder")),
+        field("Soalan kehadiran", "guestbook.attendanceLabel", readText(wedding, "guestbook.attendanceLabel")),
+        field("Pilihan hadir", "guestbook.acceptLabel", readText(wedding, "guestbook.acceptLabel")),
+        field("Pilihan tidak hadir", "guestbook.declineLabel", readText(wedding, "guestbook.declineLabel")),
+        field("Label nota", "guestbook.messageLabel", readText(wedding, "guestbook.messageLabel")),
+        field("Placeholder nota", "guestbook.messagePlaceholder", readText(wedding, "guestbook.messagePlaceholder")),
+        field("Butang hantar", "guestbook.submitLabel", readText(wedding, "guestbook.submitLabel")),
+        field("Kosong", "guestbook.empty", readText(wedding, "guestbook.empty")),
+        field("Ralat nama", "guestbook.errorName", readText(wedding, "guestbook.errorName")),
+        field("Ralat kehadiran", "guestbook.errorAttendance", readText(wedding, "guestbook.errorAttendance")),
+        field("Ralat nota", "guestbook.errorMessage", readText(wedding, "guestbook.errorMessage")),
       ]),
-      closing: block("Closing", [
-        area("Thank you", "closing.thankYou", readText(wedding, "closing.thankYou")),
-        field("Prayer label", "closing.prayerLabel", readText(wedding, "closing.prayerLabel")),
-        area("Closing prayer", "closing.prayer", readText(wedding, "closing.prayer")),
-        field("Sign-off", "closing.closing", readText(wedding, "closing.closing")),
-        area("Closing note", "closing.note", readText(wedding, "closing.note")),
+      closing: block("Penutup", [
+        area("Ucapan terima kasih", "closing.thankYou", readText(wedding, "closing.thankYou")),
+        field("Label doa", "closing.prayerLabel", readText(wedding, "closing.prayerLabel")),
+        area("Doa penutup", "closing.prayer", readText(wedding, "closing.prayer")),
+        field("Tandatangan", "closing.closing", readText(wedding, "closing.closing")),
+        area("Nota penutup", "closing.note", readText(wedding, "closing.note")),
+        field("Label hubungi", "nav.contact", readText(wedding, "nav.contact")),
+        field("Mainkan muzik", "musicPlay", readText(wedding, "musicPlay")),
+        field("Jeda muzik", "musicPause", readText(wedding, "musicPause")),
+        field("Kiraan: hari", "countdown.daysLabel", readText(wedding, "countdown.daysLabel")),
+        field("Kiraan: jam", "countdown.hoursLabel", readText(wedding, "countdown.hoursLabel")),
+        field("Kiraan: minit", "countdown.minsLabel", readText(wedding, "countdown.minsLabel")),
+        field("Kiraan: saat", "countdown.secsLabel", readText(wedding, "countdown.secsLabel")),
+        field("Masa ketibaan", "countdown.arrival", readText(wedding, "countdown.arrival")),
+        area("Mesej selesai kiraan", "countdown.done", readText(wedding, "countdown.done")),
       ]),
     };
     var order = guestPageIds(wedding.sceneOrder);
@@ -428,8 +584,9 @@
     var spec = pathValue(activeStyles, name) || {};
     return (
       '<span class="text-tune">' +
-      tuneControl("Size", "textStyle." + name + ".size", spec.size, 70, 170) +
-      tuneControl("Spacing", "textStyle." + name + ".spacing", spec.spacing, 70, 180) +
+      tuneControl("Saiz", "textStyle." + name + ".size", spec.size, 70, 170) +
+      tuneControl("Huruf", "textStyle." + name + ".letter", spec.letter, 70, 180) +
+      tuneControl("Jarak", "textStyle." + name + ".spacing", spec.spacing, 70, 180) +
       "</span>"
     );
   }
@@ -485,9 +642,9 @@
       var item = list[index];
       if (!item || typeof item !== "object") item = { time: "", title: "", detail: "" };
       rows +=
-        field("Programme " + (index + 1) + " time", "timeline." + index + ".time", item.time || "") +
-        field("Programme " + (index + 1) + " title", "timeline." + index + ".title", item.title || "") +
-        field("Programme " + (index + 1) + " detail", "timeline." + index + ".detail", item.detail || "");
+        field("Atur cara " + (index + 1) + " masa", "timeline." + index + ".time", item.time || "") +
+        field("Atur cara " + (index + 1) + " tajuk", "timeline." + index + ".title", item.title || "") +
+        field("Atur cara " + (index + 1) + " butiran", "timeline." + index + ".detail", item.detail || "");
     }
     return rows;
   }
@@ -497,10 +654,10 @@
     var rows = list.map(function (id, index) {
       return (
         '<div class="order-row" data-id="' + id + '"><span>' + (index + 1) + ". " + SCENE_NAMES[id] + "</span>" +
-        '<span><button type="button" data-move="up">Up</button> <button type="button" data-move="down">Down</button></span></div>'
+        '<span><button type="button" data-move="up">Naik</button> <button type="button" data-move="down">Turun</button></span></div>'
       );
     }).join("");
-    return "<fieldset><legend>Scene order</legend>" + rows + "</fieldset>";
+    return "<fieldset><legend>Susunan babak</legend>" + rows + "</fieldset>";
   }
 
   function bindOrder() {
@@ -655,20 +812,23 @@
     var people = contactList(wedding.contact);
     var parts = [];
     people.forEach(function (person, index) {
-      parts.push('<p class="contact-count">Contact ' + (index + 1) + "</p>");
-      parts.push(field("Role", "contact.people." + index + ".role", person.role));
-      parts.push(field("Name", "contact.people." + index + ".name", person.name));
-      parts.push(field("Phone", "contact.people." + index + ".phone", person.phone));
+      plainFields["contact.people." + index + ".role"] = true;
+      plainFields["contact.people." + index + ".name"] = true;
+      plainFields["contact.people." + index + ".phone"] = true;
+      parts.push('<p class="contact-count">Hubungi ' + (index + 1) + "</p>");
+      parts.push(field("Peranan", "contact.people." + index + ".role", person.role));
+      parts.push(field("Nama", "contact.people." + index + ".name", person.name));
+      parts.push(field("Telefon", "contact.people." + index + ".phone", person.phone));
       if (people.length > 1) {
-        parts.push('<button class="text-button contact-remove" type="button" data-remove-contact="' + index + '">Remove</button>');
+        parts.push('<button class="text-button contact-remove" type="button" data-remove-contact="' + index + '">Buang</button>');
       }
     });
-    parts.push('<button class="text-button" type="button" id="add-contact">Add a contact</button>');
-    return block("Contact person", parts);
+    parts.push('<button class="text-button" type="button" id="add-contact">Tambah hubungan</button>');
+    return block("Orang untuk dihubungi", parts);
   }
 
   function overlay(copy, extra) {
-    ["partnerOne", "partnerTwo", "music"].forEach(function (key) {
+    ["partnerOne", "partnerTwo", "music", "musicPlay", "musicPause", "musicEmpty"].forEach(function (key) {
       if (typeof extra[key] === "string") copy[key] = extra[key];
     });
     ["date", "opening", "couple", "announcement", "venue", "nav", "rsvp", "guestbook", "contact", "countdown"].forEach(function (group) {
@@ -711,7 +871,45 @@
       copy.closing = copyStrings(copy.closing, extra.closing);
     }
     if (extra.textStyle && typeof extra.textStyle === "object" && !Array.isArray(extra.textStyle)) {
-      try { copy.textStyle = JSON.parse(JSON.stringify(extra.textStyle)); } catch (error) { copy.textStyle = {}; }
+      copy.textStyle = mergeStyleTree(cloneStyle(copy.textStyle || {}), extra.textStyle);
+    }
+    if (Array.isArray(extra.textBoxes)) {
+      copy.textBoxes = extra.textBoxes.map(function (box) {
+        if (!box || typeof box !== "object") return null;
+        var next = {
+          id: String(box.id || ""),
+          scene: String(box.scene || "opening"),
+          text: String(box.text || ""),
+          size: box.size,
+          letter: box.letter,
+          spacing: box.spacing,
+          x: box.x,
+          y: box.y,
+          font: box.font,
+          color: box.color,
+          align: box.align
+        };
+        if (box.fontSizePx != null && box.fontSizePx !== "") next.fontSizePx = box.fontSizePx;
+        return next;
+      }).filter(function (box) {
+        return box && box.id;
+      });
+    }
+    if (Array.isArray(extra.widgets)) {
+      copy.widgets = extra.widgets.map(function (item) {
+        if (!item || typeof item !== "object") return null;
+        var type = String(item.type || "");
+        if (type !== "map" && type !== "waze" && type !== "countdown") return null;
+        return {
+          id: String(item.id || ""),
+          scene: String(item.scene || "opening"),
+          type: type,
+          x: item.x,
+          y: item.y
+        };
+      }).filter(function (item) {
+        return item && item.id;
+      });
     }
     if (Array.isArray(extra.sceneOrder)) {
       copy.sceneOrder = extra.sceneOrder.filter(function (id, index, list) {

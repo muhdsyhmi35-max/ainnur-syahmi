@@ -2,9 +2,9 @@ window.WEDDING = {
   "partnerOne": "Ainnur",
   "partnerTwo": "Syahmi",
   "music": "",
-  "musicPlay": "Play music",
-  "musicPause": "Pause music",
-  "musicEmpty": "Music can be added in content.js",
+  "musicPlay": "Mainkan muzik",
+  "musicPause": "Jeda muzik",
+  "musicEmpty": "Muzik boleh ditambah dalam content.js",
   "adminPasswordHash": "1932c086c2d7e2454b85df4add332b6dafbfd075800ddbd114b43e7885667891",
   "sceneOrder": [
     "opening",
@@ -14,54 +14,63 @@ window.WEDDING = {
     "closing"
   ],
   "date": {
-    "weekday": "Saturday",
+    "weekday": "Sabtu",
     "day": "2",
-    "month": "January",
+    "month": "Januari",
     "year": "2027",
-    "time": "11:00 AM"
+    "time": "11:00 pagi"
   },
   "countdown": {
-    "label": "Ketibaan Pengantin",
-    "arrival": "11:00 AM",
-    "done": "Alhamdulillah, hari bahagia telah tiba."
+    "label": "",
+    "arrival": "",
+    "done": "Alhamdulillah, hari bahagia telah tiba.",
+    "daysLabel": "Hari",
+    "hoursLabel": "Jam",
+    "minsLabel": "Minit",
+    "secsLabel": "Saat"
   },
   "opening": {
     "kicker": "Walimatul Urus",
-    "continueLabel": "Continue"
+    "nameOne": "Ainnur",
+    "nameTwo": "Syahmi",
+    "amp": "&",
+    "dateLine": "2.JANUARI.2027",
+    "continueLabel": "Teruskan"
   },
   "couple": {
-    "kicker": "The Couple",
-    "oneLine": "Daughter of \nEncik Mohd Khahirun bin Mokhtar\nPuan Nursuhaila bt Masri.",
-    "twoLine": "Son of \nEncik Abdul Manan bin Abdul Mubin \nPuan Farha bt Abu Kasim",
+    "kicker": "Pengantin",
+    "amp": "&",
+    "oneLine": "Puteri kepada\nEncik Mohd Khahirun bin Mokhtar\nPuan Nursuhaila bt Masri.",
+    "twoLine": "Putera kepada\nEncik Abdul Manan bin Abdul Mubin\nPuan Farha bt Abu Kasim",
     "note": ""
   },
   "announcement": {
-    "kicker": "The announcement",
-    "parentsOneLabel": "Parents of the bride",
-    "parentsOne": "Sample. Encik Rahman and Puan Rahman",
-    "parentsTwoLabel": "Parents of the groom",
-    "parentsTwo": "Sample. Mr Lim and Mrs Lim",
-    "message": "With joyful hearts we invite you to share the day we are married.",
-    "note": "Sample. Come as you are known to us, and stay as long as you are able.",
-    "quotationLabel": "Sample quotation",
+    "kicker": "Pengumuman",
+    "parentsOneLabel": "Ibubapa pengantin perempuan",
+    "parentsOne": "Contoh. Encik Rahman dan Puan Rahman",
+    "parentsTwoLabel": "Ibubapa pengantin lelaki",
+    "parentsTwo": "Contoh. Encik Lim dan Puan Lim",
+    "message": "Dengan penuh kesyukuran, kami menjemput anda bersama meraikan hari perkahwinan kami.",
+    "note": "Contoh. Datanglah seperti biasa, dan tinggallah selama mana yang mampu.",
+    "quotationLabel": "Petikan contoh",
     "quotation": "",
     "quotationSource": "",
-    "announcement": "Sample. Together with our families, we ask you to witness our nikah and to stay for the meal that follows."
+    "announcement": "Contoh. Bersama keluarga, kami menjemput anda menyaksikan akad nikah dan menjamu selera bersama."
   },
   "celebration": {
-    "heading": "Place & Date",
-    "dateLine": "Saturday 2 January 2027 · 11:00 AM",
+    "heading": "Tempat & Tarikh",
+    "dateLine": "Sabtu 2 Januari 2027 · 11:00 pagi",
     "ceremony": {
-      "label": "Time",
-      "time": "11:00 AM",
+      "label": "Masa",
+      "time": "11:00 pagi",
       "place": "The Majestic Ballroom",
       "detail": ""
     },
     "reception": {
-      "label": "Reception",
-      "time": "1:00 PM",
-      "place": "A seated luncheon",
-      "detail": "Stay on for lunch in the hotel, a few toasts, and an unhurried afternoon together."
+      "label": "Majlis",
+      "time": "1:00 petang",
+      "place": "Jamuan duduk",
+      "detail": "Teruskan bersama untuk makan tengah hari di hotel, sedikit ucapan, dan petang yang tenang bersama."
     },
     "attire": {
       "label": "",
@@ -71,99 +80,88 @@ window.WEDDING = {
   },
   "venue": {
     "name": "Dewan Banquet",
-    "street": "Jalan Sultan Hishamuddin",
+    "street": "",
     "mapLabel": "Google Maps",
     "mapUrl": "https://www.google.com/maps/search/?api=1&query=The+Majestic+Hotel+Kuala+Lumpur+Jalan+Sultan+Hishamuddin"
   },
   "place": {
-    "heading": "Location",
+    "heading": "Lokasi",
     "wazeLabel": "Waze",
     "wazeUrl": "https://www.waze.com/ul?q=The%20Majestic%20Hotel%20Kuala%20Lumpur&navigate=yes",
     "photoPlaceholder": "",
     "note": "",
     "photos": [],
-    "timeline": [
-      {
-        "time": "11:00 AM",
-        "title": "Solemnization",
-        "detail": "The Majestic Ballroom"
-      },
-      {
-        "time": "1:00 PM",
-        "title": "Reception",
-        "detail": "A seated luncheon"
-      }
-    ]
+    "timeline": []
   },
   "closing": {
-    "thankYou": "Thank you for being with us on this day.",
-    "prayerLabel": "Closing Prayer",
-    "prayer": "May Allah bless this marriage with tranquillity, affection, and mercy.",
-    "closing": "With Love",
-    "note": "Stay for the last toast, if you can. We want to thank you ourselves."
+    "thankYou": "Terima kasih kerana bersama kami pada hari ini.",
+    "prayerLabel": "Doa Penutup",
+    "prayer": "Semoga Allah memberkati perkahwinan ini dengan ketenangan, kasih sayang, dan rahmat.",
+    "closing": "Dengan Kasih",
+    "note": "Tinggallah untuk ucapan terakhir jika mampu. Kami ingin mengucapkan terima kasih sendiri."
   },
   "contact": {
-    "role": "Father",
+    "role": "Bapa",
     "name": "Encik Abdul Manan",
     "phone": "019-931 8520",
-    "line": "Sample. Reach Amira or Daniel at 012-345 6789.",
+    "line": "Hubungi Encik Abdul Manan di 019-931 8520.",
     "people": [
       {
-        "role": "Father",
+        "role": "Bapa",
         "name": "Encik Abdul Manan",
         "phone": "019-931 8520"
       },
       {
-        "role": "Mother",
+        "role": "Ibu",
         "name": "Puan Farha",
         "phone": "019-969 4535"
       }
     ]
   },
   "nav": {
-    "contact": "Contact",
-    "location": "Location",
-    "wishes": "Wishes",
+    "contact": "Hubungi",
+    "location": "Lokasi",
+    "wishes": "Ucapan",
     "rsvp": "RSVP",
-    "couple": "Couple",
-    "day": "The day",
-    "venue": "Venue"
+    "couple": "Pengantin",
+    "day": "Majlis",
+    "venue": "Tempat"
   },
   "rsvp": {
-    "heading": "Kindly reply",
-    "intro": " A note is welcome",
+    "heading": "Sila balas",
+    "intro": "Nota anda dialu-alukan",
     "note": "",
-    "nameLabel": "Your name",
-    "namePlaceholder": "As you would like it written",
-    "attendanceLabel": "Will you attend?",
-    "acceptLabel": "Joyfully accepts",
-    "declineLabel": "Regretfully declines",
-    "noteLabel": "A note",
-    "notePlaceholder": "A blessing, a dietary wish, or a word for the couple",
-    "submitLabel": "Confirm reply",
-    "localNote": "Your reply stays on this page.",
-    "confirmedKicker": "Reply noted",
-    "acceptMessage": "Thank you, {name}. We are so glad you will be with us on the day.",
-    "declineMessage": "Thank you, {name}. We will miss you, and we are grateful you let us know.",
-    "editLabel": "Change reply",
-    "errorName": "Please write your name.",
-    "errorAttendance": "Please let us know whether you can attend."
+    "nameLabel": "Nama anda",
+    "namePlaceholder": "",
+    "attendanceLabel": "Adakah anda akan hadir?",
+    "acceptLabel": "Hadir",
+    "declineLabel": "Tidak Hadir",
+    "noteLabel": "Nota",
+    "notePlaceholder": "",
+    "submitLabel": "Sahkan balasan",
+    "localNote": "Balasan anda kekal pada halaman ini.",
+    "confirmedKicker": "Balasan diterima",
+    "acceptMessage": "Terima kasih, {name}. Kami sangat gembira anda akan bersama kami pada hari itu.",
+    "declineMessage": "Terima kasih, {name}. Kami akan merindui anda, dan bersyukur anda memaklumkan kami.",
+    "editLabel": "Ubah balasan",
+    "errorName": "Sila tulis nama anda.",
+    "errorAttendance": "Sila maklumkan sama ada anda dapat hadir."
   },
   "guestbook": {
-    "heading": "Guestbook",
-    "intro": "Leave a wish for the couple.",
-    "nameLabel": "Your name",
-    "namePlaceholder": "As you would like it written",
-    "attendanceLabel": "Will you attend?",
-    "acceptLabel": "Joyfully accepts",
-    "declineLabel": "Regretfully declines",
-    "messageLabel": "A note",
-    "messagePlaceholder": "A blessing, a dietary wish, or a word for the couple",
-    "submitLabel": "Leave a wish",
-    "empty": "No wishes yet.",
-    "errorName": "Please write your name.",
-    "errorAttendance": "Please let us know whether you can attend.",
-    "errorMessage": "Please write a short note."
+    "heading": "Buku Tetamu",
+    "intro": "Tinggalkan ucapan untuk pasangan.",
+    "nameLabel": "Nama anda",
+    "namePlaceholder": "",
+    "attendanceLabel": "Adakah anda akan hadir?",
+    "acceptLabel": "Hadir",
+    "declineLabel": "Tidak Hadir",
+    "messageLabel": "Nota",
+    "messagePlaceholder": "",
+    "submitLabel": "Hantar ucapan",
+    "empty": "Belum ada ucapan.",
+    "errorName": "Sila tulis nama anda.",
+    "errorAttendance": "Sila maklumkan sama ada anda dapat hadir.",
+    "errorMessage": "Sila tulis nota ringkas."
   },
   "textStyle": {
     "opening": {
@@ -219,7 +217,7 @@ window.WEDDING = {
     "couple": {
       "kicker": {
         "size": "145",
-        "spacing": "150"
+        "spacing": "100"
       },
       "oneLine": {
         "size": "115",
@@ -236,6 +234,10 @@ window.WEDDING = {
     },
     "celebration": {
       "heading": {
+        "size": "100",
+        "spacing": "100"
+      },
+      "dateLine": {
         "size": "100",
         "spacing": "100"
       },
