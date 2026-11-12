@@ -6,7 +6,12 @@ window.WEDDING = {
   "musicPause": "Jeda muzik",
   "musicEmpty": "Muzik boleh ditambah dalam content.js",
   "adminPasswordHash": "1932c086c2d7e2454b85df4add332b6dafbfd075800ddbd114b43e7885667891",
-  "sceneOrder": [],
+  "sceneOrder": [
+    "opening",
+    "couple",
+    "celebration",
+    "closing"
+  ],
   "date": {
     "weekday": "Sabtu",
     "day": "2",
@@ -303,8 +308,8 @@ window.WEDDING = {
       },
       "twoLine": {
         "size": "100",
-        "letter": "100",
         "spacing": "100",
+        "letter": "100",
         "x": "5",
         "y": "8",
         "font": "",
