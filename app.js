@@ -1999,15 +1999,14 @@
         y = 0;
       }
       /*
-        Phone guests: drop desktop admin drag offsets.
-        Those x/y values were tuned on a tall desktop preview and create huge
-        gaps between every line when replayed inside 100svh mobile sections.
+        Phone guests:
+        - In-flow text: ignore desktop drag translates (they create empty gaps).
+        - Floating layers (countdown): stay in normal flow so they don't sit on
+          top of headings when the desktop Y offset is removed.
       */
-      if (phone && !isBox && !isWidget) {
+      if (phone && !isBox) {
         x = 0;
         y = 0;
-        if (spacing > 110) spacing = 100;
-        if (letter > 120) letter = 100;
       }
       if (
         !layer &&
@@ -2021,7 +2020,8 @@
         return;
       }
       if (isCountdownBox) {
-        applyDragOffset(el, x, y, true);
+        /* Phone: keep countdown in document flow under the details */
+        applyDragOffset(el, phone ? 0 : x, phone ? 0 : y, !phone);
         return;
       }
       var computed = window.getComputedStyle(el);
@@ -2060,7 +2060,8 @@
           }
         }
       }
-      applyDragOffset(el, x, y, layer);
+      /* Phone: never float widgets over copy — stack them in flow */
+      applyDragOffset(el, x, y, layer && !phone);
     });
   }
 
