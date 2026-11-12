@@ -301,7 +301,7 @@ window.WEDDING = {
         "spacing": "100",
         "letter": "100",
         "x": "0",
-        "y": "-8",
+        "y": "8",
         "font": "",
         "color": "",
         "align": ""

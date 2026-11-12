@@ -1510,7 +1510,7 @@ html.is-open {
   line-height: 1;
 }
 .scene-couple .script-amp + .script-name { margin-top: 0.55rem; margin-bottom: 0.15rem; }
-.scene-couple .person-line { margin-top: 0.28rem; font-size: 1.02rem; }
+.scene-couple .person-line { margin-top: 0.72rem; font-size: 1.02rem; }
 .scene-couple .sample-note { margin-top: 0.55rem; }
 
 .scene-announcement .mono-logo { width: 5rem; }
@@ -1540,7 +1540,7 @@ html.is-open {
 }
 
 .scene-celebration .place-links {
-  margin-top: 0.15rem;
+  margin-top: 1.25rem;
   width: min(100%, 20rem);
   display: flex !important;
   flex-direction: row;
