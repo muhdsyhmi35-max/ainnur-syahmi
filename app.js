@@ -115,11 +115,20 @@
   boot();
   window.addEventListener("resize", function () {
     shieldNames();
-    /* Re-apply saved gaps after rotate / viewport changes */
+    /*
+      Mobile browser chrome shows/hides on scroll and fires resize.
+      Never re-run applyType here — it was compounding font sizes every scroll.
+    */
     window.requestAnimationFrame(function () {
-      applyType(currentWedding());
       fitScenesToViewport();
     });
+  });
+  window.addEventListener("orientationchange", function () {
+    window.setTimeout(function () {
+      applyType(currentWedding());
+      fitScenesToViewport();
+      shieldNames();
+    }, 120);
   });
   if (document.fonts && document.fonts.ready) {
     document.fonts.ready.then(function () {
@@ -2082,6 +2091,15 @@
         applyDragOffset(el, x, y, true);
         return;
       }
+      /*
+        Always clear typed styles first, then measure CSS defaults.
+        Re-applying on top of previous inline px values was making text grow forever.
+      */
+      if (!isWidget) {
+        el.style.fontSize = "";
+        el.style.letterSpacing = "";
+        el.style.lineHeight = "";
+      }
       var computed = window.getComputedStyle(el);
       if (isBox && isFinite(basePx) && basePx > 0) {
         el.style.fontSize = Math.round(basePx * size) / 100 + "px";
@@ -2096,7 +2114,7 @@
       }
       if (!isWidget && spacing !== 100) {
         var line = parseFloat(computed.lineHeight);
-        if (line) el.style.lineHeight = Math.round(line * spacing) / 100 + "px";
+        if (line && isFinite(line)) el.style.lineHeight = Math.round(line * spacing) / 100 + "px";
       }
       if (!isWidget) {
         var family = fontFamilyValue(font);
