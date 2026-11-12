@@ -15,9 +15,37 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Alex+Brush&family=Cormorant+Garamond:ital@1&family=Italianno&family=Manrope:wght@400;500;600&family=Marcellus&display=swap" rel="stylesheet">
   <link rel="icon" href="favicon.svg" type="image/svg+xml">
-  <link rel="stylesheet" href="styles.css?v=2.0.3">
+  <link rel="stylesheet" href="styles.css?v=2.0.2">
   <script>
     (function () {
+      /* Lock layout to admin preview canvas (390px) so text gaps match on every phone */
+      var DESIGN_W = 390;
+      var meta = document.querySelector('meta[name="viewport"]');
+      function fitDesignViewport() {
+        if (!meta) return;
+        var inAdmin = window !== window.top || /(?:\?|&)preview=draft(?:&|$)/.test(location.search);
+        try {
+          inAdmin = inAdmin || sessionStorage.getItem("wedding-admin-open") === "yes";
+        } catch (error) {}
+        if (inAdmin) {
+          meta.setAttribute("content", "width=device-width, initial-scale=1, viewport-fit=cover");
+          return;
+        }
+        var deviceW = Math.min(screen.width || DESIGN_W, window.outerWidth || DESIGN_W) || DESIGN_W;
+        if (deviceW > 0 && deviceW < 520) {
+          /* width=390 → browser scales the whole card like the admin phone frame */
+          meta.setAttribute(
+            "content",
+            "width=" + DESIGN_W + ", user-scalable=no, viewport-fit=cover"
+          );
+        } else {
+          meta.setAttribute("content", "width=device-width, initial-scale=1, viewport-fit=cover");
+        }
+      }
+      fitDesignViewport();
+      window.addEventListener("orientationchange", function () {
+        setTimeout(fitDesignViewport, 60);
+      });
       var reduce = false;
       try {
         reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -33,7 +61,7 @@
   <noscript>
     <p class="noscript">This invitation needs JavaScript to display the wording in content.js.</p>
   </noscript>
-  <script src="content.js?v=2.0.3"></script>
-  <script src="app.js?v=2.0.3"></script>
+  <script src="content.js?v=2.0.2"></script>
+  <script src="app.js?v=2.0.2"></script>
 </body>
 </html>

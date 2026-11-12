@@ -2,6 +2,9 @@
   var base = window.WEDDING;
   var root = document.getElementById("invitation");
   var SCENE_IDS = ["opening", "couple", "celebration", "closing"];
+  /* Admin preview canvas — all saved text x/y gaps are authored in this space */
+  var DESIGN_W = 390;
+  var DESIGN_H = 844;
   var reduce =
     document.documentElement.classList.contains("reduce-motion") ||
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -108,9 +111,18 @@
   });
 
   boot();
-  window.addEventListener("resize", shieldNames);
+  window.addEventListener("resize", function () {
+    shieldNames();
+    /* Re-apply saved gaps after rotate / viewport changes */
+    window.requestAnimationFrame(function () {
+      applyType(currentWedding());
+    });
+  });
   if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(shieldNames);
+    document.fonts.ready.then(function () {
+      shieldNames();
+      applyType(currentWedding());
+    });
   }
 
   function syncDraftPayload(payload) {
@@ -1964,16 +1976,7 @@
     return dirty || true;
   }
 
-  function isPhoneLayout() {
-    try {
-      return window.matchMedia("(max-width: 720px), (pointer: coarse)").matches;
-    } catch (error) {
-      return false;
-    }
-  }
-
   function applyType(wedding) {
-    var phone = isPhoneLayout();
     document.querySelectorAll("[data-field]").forEach(function (el) {
       var path = el.getAttribute("data-field");
       if (!path) return;
@@ -1998,16 +2001,6 @@
         x = 0;
         y = 0;
       }
-      /*
-        Phone guests:
-        - In-flow text: ignore desktop drag translates (they create empty gaps).
-        - Floating layers (countdown): stay in normal flow so they don't sit on
-          top of headings when the desktop Y offset is removed.
-      */
-      if (phone && !isBox) {
-        x = 0;
-        y = 0;
-      }
       if (
         !layer &&
         size === 100 && spacing === 100 && letter === 100 &&
@@ -2020,8 +2013,7 @@
         return;
       }
       if (isCountdownBox) {
-        /* Phone: keep countdown in document flow under the details */
-        applyDragOffset(el, phone ? 0 : x, phone ? 0 : y, !phone);
+        applyDragOffset(el, x, y, true);
         return;
       }
       var computed = window.getComputedStyle(el);
@@ -2060,32 +2052,32 @@
           }
         }
       }
-      /* Phone: never float widgets over copy — stack them in flow */
-      applyDragOffset(el, x, y, layer && !phone);
+      applyDragOffset(el, x, y, layer);
     });
   }
 
   function posLimits(el) {
     var scene = el && el.closest ? el.closest(".scene") : null;
     var box = scene ? scene.getBoundingClientRect() : { width: 0, height: 0 };
-    var width = box.width >= 120 ? box.width : 390;
-    var height = box.height >= 200 ? box.height : 844;
+    /* Prefer live scene; fall back to admin design canvas so limits stay stable */
+    var width = box.width >= 120 ? box.width : DESIGN_W;
+    var height = box.height >= 200 ? box.height : DESIGN_H;
     var minX = -Math.round(width / 2 - 20);
     var maxX = Math.round(width / 2 - 20);
     var minY = -Math.round(height * 0.35);
     var maxY = Math.round(height - 100);
     if (minX > maxX) {
-      minX = -175;
-      maxX = 175;
+      minX = -Math.round(DESIGN_W / 2 - 20);
+      maxX = Math.round(DESIGN_W / 2 - 20);
     }
     if (minY > maxY) {
-      minY = -200;
-      maxY = 700;
+      minY = -Math.round(DESIGN_H * 0.35);
+      maxY = Math.round(DESIGN_H - 100);
     }
     return { minX: minX, maxX: maxX, minY: minY, maxY: maxY };
   }
 
-  function applyDragOffset(el, x, y, asLayer) {
+  function applyDragOffset(el, x, y, asLayer, clampToScene) {
     var lim = posLimits(el);
     var rawX = Number(x);
     var rawY = Number(y);
@@ -2110,8 +2102,17 @@
       }
       return;
     }
-    x = Math.round(clampNumber(rawX, lim.minX, lim.maxX, rawX));
-    y = Math.round(clampNumber(rawY, lim.minY, lim.maxY, rawY));
+    /*
+      Guests: keep saved admin offsets exactly (design canvas).
+      Admin drag only: clamp to the live scene so text stays on-card while moving.
+    */
+    if (clampToScene) {
+      x = Math.round(clampNumber(rawX, lim.minX, lim.maxX, rawX));
+      y = Math.round(clampNumber(rawY, lim.minY, lim.maxY, rawY));
+    } else {
+      x = Math.round(rawX);
+      y = Math.round(rawY);
+    }
     el.dataset.dragPos = "1";
     if (asLayer) {
       el.style.position = "absolute";
@@ -2482,7 +2483,7 @@
     var lim = fieldDrag.lim || posLimits(fieldDrag.el);
     fieldDrag.curX = Math.round(clampNumber(fieldDrag.origX + dx, lim.minX, lim.maxX, 0));
     fieldDrag.curY = Math.round(clampNumber(fieldDrag.origY + dy, lim.minY, lim.maxY, 0));
-    applyDragOffset(fieldDrag.el, fieldDrag.curX, fieldDrag.curY, fieldDrag.asLayer);
+    applyDragOffset(fieldDrag.el, fieldDrag.curX, fieldDrag.curY, fieldDrag.asLayer, true);
     event.preventDefault();
   }
 
