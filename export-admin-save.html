@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="ms">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Export admin save</title>
+</head>
+<body style="font-family: system-ui, sans-serif; max-width: 36rem; margin: 2rem auto; padding: 0 1rem;">
+  <h1>Export admin save</h1>
+  <p id="status">Menulis content.js dari localStorage…</p>
+  <pre id="out" style="white-space: pre-wrap; background: #f6f3ee; padding: 1rem; border-radius: 8px;"></pre>
+  <script>
+    (function () {
+      var status = document.getElementById("status");
+      var out = document.getElementById("out");
+      var raw =
+        localStorage.getItem("wedding-card-published") ||
+        localStorage.getItem("wedding-card-draft");
+      if (!raw) {
+        status.textContent = "Tiada draft admin dalam pelayar ini. Buka /admin/ dulu, Simpan, kemudian refresh halaman ini.";
+        return;
+      }
+      var obj;
+      try {
+        obj = JSON.parse(raw);
+      } catch (error) {
+        status.textContent = "Draft rosak: " + error.message;
+        return;
+      }
+      if (!Array.isArray(obj.sceneOrder) || !obj.sceneOrder.length) {
+        obj.sceneOrder = ["opening", "couple", "celebration", "closing"];
+      }
+      var text = "window.WEDDING = " + JSON.stringify(obj, null, 2) + ";\n";
+      out.textContent =
+        (obj.partnerOne || "") +
+        " & " +
+        (obj.partnerTwo || "") +
+        "\n" +
+        ((obj.opening && obj.opening.dateLine) || "") +
+        " · " +
+        ((obj.date && obj.date.time) || "") +
+        "\n" +
+        ((obj.nav && obj.nav.location) || "") +
+        " / " +
+        ((obj.nav && obj.nav.wishes) || "") +
+        "\nbytes " +
+        text.length;
+      fetch("/__save-content", {
+        method: "POST",
+        headers: { "Content-Type": "text/javascript; charset=utf-8" },
+        body: text
+      })
+        .then(function (res) {
+          return res.text().then(function (body) {
+            if (!res.ok) throw new Error(body || res.status);
+            status.textContent = "Berjaya. content.js dikemas kini dari admin save pelayar ini.";
+            out.textContent += "\n\n" + body;
+          });
+        })
+        .catch(function (error) {
+          status.textContent =
+            "Gagal tulis fail. Pastikan node serve.js berjalan. " + error.message;
+        });
+    })();
+  </script>
+</body>
+</html>

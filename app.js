@@ -99,8 +99,12 @@
       event.key !== "wedding-card-draft" &&
       event.key !== "wedding-card-published"
     ) return;
-    /* Guest tab live-updates when admin saves in another tab */
-    paint(currentWedding(), true);
+    var adminOpen = false;
+    try {
+      adminOpen = sessionStorage.getItem("wedding-admin-open") === "yes";
+    } catch (error) {}
+    /* Only admin/preview should hot-reload from browser draft */
+    if (preview || adminOpen) paint(currentWedding(), true);
   });
 
   boot();
@@ -126,12 +130,20 @@
   }
 
   function currentWedding() {
-    /* Guest + admin preview both read the same draft first */
-    var extra =
-      readStore("wedding-card-draft") ||
-      readStore("wedding-card-published") ||
-      readStore("wedding-card-edits");
-    return mergeWedding(base, extra);
+    var adminOpen = false;
+    try {
+      adminOpen = sessionStorage.getItem("wedding-admin-open") === "yes";
+    } catch (error) {}
+    /* Admin / iframe preview: use browser draft so live edits show. */
+    if (preview || adminOpen) {
+      var extra =
+        readStore("wedding-card-draft") ||
+        readStore("wedding-card-published") ||
+        readStore("wedding-card-edits");
+      return mergeWedding(base, extra);
+    }
+    /* Guests (localhost + GitHub): content.js only — publish matches this view */
+    return mergeWedding(base, null);
   }
 
   function sectionPetals(sceneId) {
