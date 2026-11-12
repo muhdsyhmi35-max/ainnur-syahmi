@@ -195,14 +195,14 @@ html.will-open .stage { display: block; }
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  transition: opacity 0.45s ease, visibility 0s linear 0.45s;
+  transition: opacity 0.7s cubic-bezier(0.22, 1, 0.36, 1), visibility 0s linear 0.7s;
 }
 
 .gate-scene {
   position: absolute;
   inset: 0;
   background: #f3ebe1;
-  transition: background 0.2s ease 0.45s;
+  transition: background 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.2s;
 }
 
 .stage.is-opening .gate-scene {
@@ -236,20 +236,22 @@ html.will-open .stage { display: block; }
 }
 
 .stage.is-opening .door-top {
-  animation: flap-up 2.15s cubic-bezier(0.45, 0.05, 0.2, 1) 0.4s both;
+  animation: flap-up 2.75s cubic-bezier(0.16, 1, 0.3, 1) 0.22s both;
 }
 .stage.is-opening .door-bottom {
-  animation: flap-down 2.15s cubic-bezier(0.45, 0.05, 0.2, 1) 0.4s both;
+  animation: flap-down 2.75s cubic-bezier(0.16, 1, 0.3, 1) 0.22s both;
 }
 
 @keyframes flap-up {
   0% { transform: translate3d(0, 0, 0); }
-  100% { transform: translate3d(0, -108%, 0); }
+  12% { transform: translate3d(0, -1.5%, 0); }
+  100% { transform: translate3d(0, -112%, 0); }
 }
 
 @keyframes flap-down {
   0% { transform: translate3d(0, 0, 0); }
-  100% { transform: translate3d(0, 108%, 0); }
+  12% { transform: translate3d(0, 1.5%, 0); }
+  100% { transform: translate3d(0, 112%, 0); }
 }
 
 .door-inner {
@@ -274,11 +276,11 @@ html.will-open .stage { display: block; }
   background: rgba(90, 74, 58, 0.28);
   box-shadow: 0 0 10px rgba(70, 55, 40, 0.12);
   z-index: 4;
-  transition: opacity 0.45s ease 0.35s;
+  transition: opacity 0.75s cubic-bezier(0.22, 1, 0.36, 1) 0.12s;
 }
 
 .stage.is-opening .seam { opacity: 0; }
-.stage.is-opening .open-hint { animation: hint-out 0.28s ease both; }
+.stage.is-opening .open-hint { animation: hint-out 0.55s cubic-bezier(0.22, 1, 0.36, 1) both; }
 
 .seal-wrap {
   position: absolute;
@@ -346,27 +348,39 @@ html.will-open .stage { display: block; }
 }
 
 .stage.is-opening .seal {
-  animation: seal-break 0.55s cubic-bezier(0.3, 0, 0.2, 1) both;
+  animation: seal-break 0.95s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 @keyframes seal-breathe {
   0%, 100% { transform: translate(-50%, -50%) scale(1); }
-  45% { transform: translate(-50%, -50%) scale(1.055); }
+  50% { transform: translate(-50%, -50%) scale(1.04); }
 }
 
 @keyframes seal-break {
-  0% { opacity: 1; transform: translate(-50%, -50%) scale(1); }
-  45% { opacity: 0.85; transform: translate(-50%, -50%) scale(0.78); }
-  100% { opacity: 0; transform: translate(-50%, -50%) scale(0.28); }
+  0% {
+    opacity: 1;
+    transform: translate(-50%, -50%) scale(1);
+    filter: blur(0);
+  }
+  28% {
+    opacity: 1;
+    transform: translate(-50%, -54%) scale(1.05);
+    filter: blur(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -72%) scale(0.82);
+    filter: blur(1.5px);
+  }
 }
 
 @keyframes hint-in {
-  from { opacity: 0; transform: translate(-50%, 8px); }
+  from { opacity: 0; transform: translate(-50%, 10px); }
   to { opacity: 1; transform: translate(-50%, 0); }
 }
 
 @keyframes hint-out {
-  to { opacity: 0; transform: translate(-50%, 8px); }
+  to { opacity: 0; transform: translate(-50%, 12px); }
 }
 
 .stage:focus-visible { outline: 2px solid var(--ink); outline-offset: -6px; }
@@ -528,9 +542,11 @@ h1 { margin: 0.35rem 0 0; font-weight: 400; }
 .script-amp {
   display: block;
   margin: 0.15rem 0;
-  font-family: var(--brush);
-  font-size: 1.8rem;
+  /* Same script family as the names so & matches admin/guest */
+  font-family: var(--script);
+  font-size: 2.4rem;
   line-height: 1;
+  font-weight: 400;
 }
 
 .date-block { margin-top: 1.15rem; }
@@ -651,9 +667,11 @@ html.is-open .reveal:nth-child(7) { animation-delay: 1.06s; }
 
 .detail-time {
   margin: 0.15rem 0 0;
-  font-family: var(--script);
-  font-size: 2.15rem;
-  line-height: 0.9;
+  font-family: var(--sans);
+  font-style: normal;
+  font-size: 0.95rem;
+  line-height: 1.4;
+  color: var(--ink-soft);
 }
 
 .detail-place { margin: 0.35rem 0 0; font-family: var(--display); font-size: 1.02rem; }
@@ -669,6 +687,39 @@ html.is-open .reveal:nth-child(7) { animation-delay: 1.06s; }
   color: var(--ink);
   font-size: 0.92rem;
   text-underline-offset: 0.18em;
+}
+
+.place-links .text-link {
+  display: inline-flex !important;
+  align-items: center;
+  justify-content: center;
+  width: auto !important;
+  max-width: none !important;
+  margin: 0 !important;
+  padding: 0.55rem 1.15rem;
+  border: 1px solid rgba(185, 163, 143, 0.55);
+  border-radius: 999px;
+  background: rgba(255, 252, 248, 0.55);
+  color: var(--ink-soft);
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  font-weight: 500;
+  letter-spacing: 0.08em;
+  text-decoration: none;
+  text-underline-offset: unset;
+  position: relative !important;
+  top: auto !important;
+  left: auto !important;
+  right: auto !important;
+  transform: none !important;
+  transition: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease;
+}
+
+.place-links .text-link:hover,
+.place-links .text-link:focus-visible {
+  background: rgba(255, 252, 248, 0.92);
+  border-color: rgba(140, 110, 80, 0.55);
+  color: var(--ink);
 }
 
 .attire {
@@ -1291,10 +1342,11 @@ html.is-open {
   color: #3a312b;
   text-align: center;
   box-sizing: border-box;
-  padding: 1rem 0.85rem 1.05rem;
-  border: 1px solid rgba(185, 163, 143, 0.45);
-  border-radius: 18px;
-  background: rgba(255, 252, 248, 0.72);
+  padding: 0.35rem 0.25rem;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
 }
 
 .countdown-heading {
@@ -1468,7 +1520,7 @@ html.is-open {
 .scene-announcement .quotation p { font-size: 1.02rem; line-height: 1.32; }
 
 .scene-celebration .stack { margin-top: 0.85rem; gap: 0.8rem; }
-.scene-celebration .detail-time { font-size: 1.75rem; }
+.scene-celebration .detail-time { font-size: 0.95rem; }
 .scene-celebration .detail-copy { margin-top: 0.28rem; font-size: 0.86rem; line-height: 1.35; }
 .scene-celebration .attire { margin-top: 0.75rem; }
 .scene-celebration .sample-note { margin-top: 0.5rem; font-size: 0.98rem; }
@@ -1485,15 +1537,14 @@ html.is-open {
 }
 
 .scene-celebration .place-links {
-  margin-top: 0;
-  width: min(100%, 18rem);
-  display: grid;
-  gap: 0.35rem;
-  justify-items: center;
-}
-
-.scene-celebration .place-links .text-link {
-  margin-top: 0;
+  margin-top: 0.15rem;
+  width: min(100%, 20rem);
+  display: flex !important;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
+  justify-content: center;
+  gap: 0.65rem;
 }
 
 .scene-celebration .countdown {
@@ -1853,7 +1904,8 @@ html.will-open:not(.is-open):not(.envelope-open) .t-mono .mono-logo {
 
 html.will-open.envelope-open:not(.is-open) .opening-line {
   opacity: 0;
-  animation: cover-from-left 0.85s cubic-bezier(0.22, 1, 0.36, 1) both;
+  /* Opacity-only — translateX was shifting Walimatul Urus when is-open cleared the animation */
+  animation: cover-fade-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 html.will-open.envelope-open:not(.is-open) .t-mono {
@@ -1863,11 +1915,10 @@ html.will-open.envelope-open:not(.is-open) .t-mono {
 
 html.will-open.envelope-open:not(.is-open) .t-mono .mono-logo {
   opacity: 0;
-  transform: translateX(-14px);
-  animation: mono-from-left 0.85s cubic-bezier(0.22, 1, 0.36, 1) 0.9s both;
+  animation: cover-fade-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) 0.9s both;
 }
 
-/* Logo + Walimatul Urus first, then names */
+/* Logo + Walimatul Urus first, then letter names, then date */
 html.will-open.envelope-open:not(.is-open) .t-kicker { animation-delay: 0.9s; }
 html.will-open.envelope-open:not(.is-open) .t-name { opacity: 1; animation: none; }
 html.will-open.envelope-open:not(.is-open) .t-date { animation-delay: 3.35s; }
@@ -1881,8 +1932,7 @@ html.will-open.envelope-open:not(.is-open) .t-verse { animation-delay: 3.75s; }
 
 html.will-open.envelope-open:not(.is-open) .letter {
   opacity: 0;
-  transform: translateX(-10px);
-  animation: letter-from-left 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: cover-fade-in 0.7s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 html.is-open .scene-opening .letter,
@@ -1891,7 +1941,6 @@ html.is-open .scene-opening .opening-line,
 html.is-open .scene-opening .continue {
   opacity: 1;
   filter: none;
-  transform: none;
   animation: none;
 }
 
@@ -1925,7 +1974,7 @@ html.is-open .scene-opening .continue {
 
 html.will-open.envelope-open:not(.is-open) .continue {
   opacity: 0;
-  animation: cover-from-left 0.85s cubic-bezier(0.22, 1, 0.36, 1) 4.05s both;
+  animation: cover-fade-in 0.9s cubic-bezier(0.22, 1, 0.36, 1) 4.05s both;
 }
 
 .sample-note {
@@ -2022,9 +2071,12 @@ html.will-open.envelope-open:not(.is-open) .continue {
 }
 
 .place-links {
-  display: flex;
+  display: flex !important;
+  flex-direction: row;
+  flex-wrap: nowrap;
+  align-items: center;
   justify-content: center;
-  gap: 1.1rem;
+  gap: 0.65rem;
   margin-top: 0.9rem;
 }
 
@@ -2076,6 +2128,9 @@ html.will-open.envelope-open:not(.is-open) .continue {
   margin-top: 1.2rem;
   display: grid;
   gap: 0.8rem;
+  width: min(100%, 22rem);
+  margin-left: auto;
+  margin-right: auto;
 }
 
 .wishes.is-scrolling {
@@ -2182,16 +2237,16 @@ html.will-open.envelope-open:not(.is-open) .continue {
   transform: none;
 }
 
-/* Always visible — guest must match admin preview 100% */
+/* Guest: fade lines in when the section scrolls into view */
 .scene:not(.scene-opening) .line {
-  opacity: 1;
-  animation: none;
+  opacity: 0;
 }
 
 .scene.is-in .line {
-  opacity: 1;
-  animation: none;
+  animation: rise 1.35s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
+
+/* Admin edit keeps the same top→bottom line animation as guest */
 
 .scene:not(.scene-opening) .quiet-band,
 .scene:not(.scene-opening) .quiet-corner,
@@ -2320,18 +2375,23 @@ html.will-open.envelope-open:not(.is-open) .continue {
 }
 
 @keyframes cover-from-left {
-  from { opacity: 0; transform: translateX(-18px); }
-  to { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes cover-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes mono-from-left {
-  from { opacity: 0; transform: translateX(-14px); }
-  to { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes letter-from-left {
-  from { opacity: 0; transform: translateX(-10px); }
-  to { opacity: 1; transform: translateX(0); }
+  from { opacity: 0; }
+  to { opacity: 1; }
 }
 
 @keyframes flora-drift {
@@ -2540,22 +2600,40 @@ html.is-field-edit [data-field] {
   outline: 1px dashed rgba(185, 163, 143, 0.55);
   outline-offset: 2px;
   transition: outline-color 0.15s ease;
-  touch-action: none;
+  /* Allow vertical scroll in the phone preview; lock only while dragging */
+  touch-action: pan-y;
   user-select: none;
   -webkit-user-select: none;
+}
+
+html.is-field-edit [data-field].is-drag-ready,
+html.is-field-edit [data-field].is-dragging {
+  touch-action: none;
+}
+
+/* Admin preview matches guest: one scroll = one section */
+html.is-field-edit.is-open {
+  scroll-snap-type: y mandatory;
+  overscroll-behavior-y: none;
+}
+
+html.is-field-edit .sheet {
+  overflow: clip;
+}
+
+html.is-field-edit .scene:not(.scene-opening) {
+  height: 100svh;
+  min-height: 100svh;
+  max-height: 100svh;
+  overflow: hidden;
+  scroll-snap-align: start;
+  scroll-snap-stop: always;
 }
 
 html.is-field-edit .user-text-box[data-field],
 html.is-field-edit .user-widget[data-field],
 html.is-field-edit .countdown[data-field="countdown.box"] {
   z-index: 8;
-}
-
-/* Rise animation must not wipe translateX(-50%) on absolute boxes */
-.scene:not(.scene-opening) .user-text-box.line,
-.scene:not(.scene-opening) .user-widget.line {
-  opacity: 1;
-  animation: none;
 }
 
 html.is-field-edit .scene-opening .script-name,

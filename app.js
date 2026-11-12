@@ -1,7 +1,7 @@
 (function () {
   var base = window.WEDDING;
   var root = document.getElementById("invitation");
-  var SCENE_IDS = ["opening", "couple", "celebration", "place", "closing"];
+  var SCENE_IDS = ["opening", "couple", "celebration", "closing"];
   var reduce =
     document.documentElement.classList.contains("reduce-motion") ||
     window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -27,7 +27,10 @@
     keptOpen = keepOpen || document.documentElement.classList.contains("is-open");
     if (wedding.textBoxes && !Array.isArray(wedding.textBoxes)) wedding.textBoxes = [];
     if (wedding.widgets && !Array.isArray(wedding.widgets)) wedding.widgets = [];
-    if (resetBrokenPositions(wedding)) {
+    var storeDirty = false;
+    if (resetBrokenPositions(wedding)) storeDirty = true;
+    if (fixCardCopy(wedding)) storeDirty = true;
+    if (storeDirty) {
       try {
         writeStore("wedding-card-draft", wedding);
         writeStore("wedding-card-published", wedding);
@@ -72,6 +75,7 @@
     if (event.data.type === "wedding-enable-edit") {
       try { sessionStorage.setItem("wedding-admin-open", "yes"); } catch (error) {}
       document.documentElement.classList.add("is-field-edit");
+      paint(currentWedding(), true);
       bindFieldEdit();
       return;
     }
@@ -220,7 +224,7 @@
     if (id === "opening") return renderOpening(wedding);
     if (id === "couple") return renderCouple(wedding);
     if (id === "celebration") return renderCelebration(wedding);
-    if (id === "place") return renderPlace(wedding);
+    if (id === "place") return "";
     if (id === "closing") return renderGuestbook(wedding) + renderClosing(wedding);
     return "";
   }
@@ -335,10 +339,19 @@
     var nameOne = open.nameOne || wedding.partnerOne;
     var nameTwo = open.nameTwo || wedding.partnerTwo;
     var amp = open.amp || "&";
-    /* Same HTML for admin + guest — no letter-split branch */
-    var nameOneHtml = esc(nameOne);
-    var nameTwoHtml = esc(nameTwo);
-    var ampHtml = esc(amp);
+    /* edit25h cover: name one → & → name two (letter-by-letter). Admin: plain text. */
+    var editNames = canLiveEdit();
+    var nameOneHtml = editNames ? esc(nameOne) : letters(nameOne, 2.25);
+    var nameTwoHtml = editNames
+      ? esc(nameTwo)
+      : letters(nameTwo, ampDelay(nameOne, 2.25) + 0.12);
+    var ampHtml = editNames
+      ? esc(amp)
+      : (
+        '<span class="letter" style="animation-delay:' +
+        ampDelay(nameOne, 2.25).toFixed(2) +
+        's">' + esc(amp) + "</span>"
+      );
     return withTextBoxes(
       '<section class="scene scene-opening" id="opening">' +
       corners("opening") +
@@ -348,6 +361,7 @@
       '<p class="kicker opening-line t-kicker" data-field="opening.kicker">' + esc(open.kicker) + "</p>" +
       '<h1 class="opening-line t-name">' +
       '<span class="script-name" data-field="opening.nameOne">' + nameOneHtml + "</span>" +
+      /* Same data-field on guest + admin so amp font/size follow admin styles */
       '<span class="script-amp" data-field="opening.amp">' + ampHtml + "</span>" +
       '<span class="sr-only"> and </span>' +
       '<span class="script-name" data-field="opening.nameTwo">' + nameTwoHtml + "</span></h1>" +
@@ -398,7 +412,7 @@
       links += '<a class="text-link" data-field="place.wazeLabel" href="' + esc(waze) + '" target="_blank" rel="noopener noreferrer">' +
         esc(place.wazeLabel || "Waze") + '<span class="sr-only"> (dibuka dalam tab baharu)</span></a>';
     }
-    return links ? '<p class="place-links line">' + links + "</p>" : "";
+    return links ? '<div class="place-links line">' + links + "</div>" : "";
   }
 
   function renderCelebration(wedding) {
@@ -496,18 +510,18 @@
       '<p class="section-sub line" data-field="guestbook.intro">' + esc(book.intro) + "</p>" +
       '<form id="guestbook-form" novalidate>' +
       '<p class="form-error" id="book-error" role="alert" hidden></p>' +
-      '<label class="field"><span data-field="guestbook.nameLabel">' + esc(book.nameLabel) + "</span>" +
+      '<label class="field line"><span data-field="guestbook.nameLabel">' + esc(book.nameLabel) + "</span>" +
       '<input name="name" type="text" maxlength="80" autocomplete="name" placeholder="' + esc(book.namePlaceholder || "") + '" data-field="guestbook.namePlaceholder"></label>' +
-      '<fieldset><legend data-field="guestbook.attendanceLabel">' + esc(book.attendanceLabel || "Adakah anda akan hadir?") + "</legend>" +
+      '<fieldset class="line"><legend data-field="guestbook.attendanceLabel">' + esc(book.attendanceLabel || "Adakah anda akan hadir?") + "</legend>" +
       '<div class="choices">' +
       '<label class="choice"><input type="radio" name="attendance" value="yes"><span data-field="guestbook.acceptLabel">' +
       esc(book.acceptLabel || "Hadir") + "</span></label>" +
       '<label class="choice"><input type="radio" name="attendance" value="no"><span data-field="guestbook.declineLabel">' +
       esc(book.declineLabel || "Tidak Hadir") + "</span></label>" +
       "</div></fieldset>" +
-      '<label class="field"><span data-field="guestbook.messageLabel">' + esc(book.messageLabel) + "</span>" +
+      '<label class="field line"><span data-field="guestbook.messageLabel">' + esc(book.messageLabel) + "</span>" +
       '<textarea name="message" maxlength="400" placeholder="' + esc(book.messagePlaceholder || "") + '" data-field="guestbook.messagePlaceholder"></textarea></label>' +
-      '<button class="button" type="submit" data-field="guestbook.submitLabel">' + esc(book.submitLabel) + "</button></form>" +
+      '<button class="button line" type="submit" data-field="guestbook.submitLabel">' + esc(book.submitLabel) + "</button></form>" +
       '<div class="wishes" id="wish-list" aria-live="polite"></div>' +
       "</div></section>",
       wedding,
@@ -560,19 +574,19 @@
     item = item || {};
     var parts = "";
     if (String(item.label || "").trim()) {
-      parts += '<h3 data-field="' + field + '.label">' + esc(item.label) + "</h3>";
+      parts += '<h3 class="line" data-field="' + field + '.label">' + esc(item.label) + "</h3>";
     }
     if (String(item.time || "").trim()) {
-      parts += '<p class="detail-time" data-field="' + field + '.time">' + esc(item.time) + "</p>";
+      parts += '<p class="detail-time line" data-field="' + field + '.time">' + esc(item.time) + "</p>";
     }
     if (String(item.place || "").trim()) {
-      parts += '<p class="detail-place" data-field="' + field + '.place">' + esc(item.place) + "</p>";
+      parts += '<p class="detail-place line" data-field="' + field + '.place">' + esc(item.place) + "</p>";
     }
     if (String(item.detail || "").trim()) {
-      parts += '<p class="detail-copy" data-field="' + field + '.detail">' + esc(item.detail) + "</p>";
+      parts += '<p class="detail-copy line" data-field="' + field + '.detail">' + esc(item.detail) + "</p>";
     }
     if (!parts) return "";
-    return '<article class="detail line">' + parts + "</article>";
+    return '<article class="detail">' + parts + "</article>";
   }
 
   function sectionLinks(wedding, withIcons) {
@@ -1058,7 +1072,7 @@
       stage.classList.add("is-opening");
       stage.setAttribute("aria-hidden", "true");
       releaseButterflies();
-      // Reveal invitation as top + bottom flaps part
+      /* Seal softens first, then flaps part — reveal card as the split opens */
       window.setTimeout(function () {
         document.documentElement.classList.add("envelope-open");
         window.clearTimeout(bindContinue.enableTimer);
@@ -1066,14 +1080,14 @@
           var button = document.getElementById("continue");
           if (button) button.disabled = false;
         }, 4200);
-      }, 650);
+      }, 420);
       window.setTimeout(function () {
         stage.classList.add("is-gone");
-      }, 2700);
-      window.setTimeout(function () {
-        document.documentElement.classList.add("is-open", "show-nav");
-        document.documentElement.classList.remove("will-open");
-        window.requestAnimationFrame(shieldNames);
+      }, 3100);
+      window.clearTimeout(openFromCover.finalizeTimer);
+      openFromCover.finalizeTimer = window.setTimeout(function () {
+        openFromCover.finalizeTimer = null;
+        finishCoverReveal(true);
       }, 5600);
     }
     stage.addEventListener("click", openEnvelope);
@@ -1160,9 +1174,22 @@
     return { hours: hours, minutes: minutes };
   }
 
-  function openFromCover() {
+  function finishCoverReveal(pinIfStillOnCover) {
     document.documentElement.classList.add("is-open", "show-nav");
+    document.documentElement.classList.remove("will-open");
+    if (pinIfStillOnCover) {
+      var opening = document.getElementById("opening");
+      var onCover = opening && opening.getBoundingClientRect().top > -40 && window.scrollY < 60;
+      if (onCover) window.scrollTo(0, 0);
+    }
     window.requestAnimationFrame(shieldNames);
+  }
+
+  function openFromCover() {
+    /* Cancel delayed cover finalize — its scrollTo(0,0) was yanking users back after TERUSKAN */
+    window.clearTimeout(openFromCover.finalizeTimer);
+    openFromCover.finalizeTimer = null;
+    finishCoverReveal(false);
   }
 
   function scheduleNav() {
@@ -1222,19 +1249,49 @@
           return;
         }
         if (scene.classList.contains("is-in")) return;
-        var lines = scene.querySelectorAll(".line");
-        Array.prototype.forEach.call(lines, function (line, index) {
-          line.style.animationDelay = Math.min(index * 0.08, 0.64) + "s";
-        });
-        // Force CSS animations to restart when scrolling back up
-        scene.classList.remove("is-in");
-        void scene.offsetWidth;
-        scene.classList.add("is-in");
+        playSceneLines(scene);
       });
     }, { threshold: [0, 0.28, 0.55, 0.85] });
     Array.prototype.forEach.call(scenes, function (scene) {
       if (!scene.classList.contains("scene-opening")) motionWatcher.observe(scene);
     });
+  }
+
+  function sceneLineNodes(scene) {
+    return Array.prototype.filter.call(scene.querySelectorAll(".line"), function (el) {
+      if (el.getAttribute("aria-hidden") === "true") return false;
+      /* Skip nested .line inside another .line */
+      var parent = el.parentElement;
+      while (parent && parent !== scene) {
+        if (parent.classList && parent.classList.contains("line")) return false;
+        parent = parent.parentElement;
+      }
+      return true;
+    });
+  }
+
+  function staggerSceneLines(scene) {
+    var lines = sceneLineNodes(scene);
+    /* Visual top → bottom (offsetTop breaks across nested tools / absolute widgets) */
+    lines.sort(function (a, b) {
+      var ar = a.getBoundingClientRect();
+      var br = b.getBoundingClientRect();
+      var top = ar.top - br.top;
+      if (Math.abs(top) > 1) return top;
+      return ar.left - br.left;
+    });
+    lines.forEach(function (line, index) {
+      line.style.animationDelay = (0.12 + index * 0.22) + "s";
+    });
+    return lines;
+  }
+
+  function playSceneLines(scene) {
+    if (!scene) return;
+    staggerSceneLines(scene);
+    scene.classList.remove("is-in");
+    void scene.offsetWidth;
+    scene.classList.add("is-in");
   }
 
   function bindPhotos(invitation, wedding) {
@@ -1367,40 +1424,69 @@
       renderWishes();
     });
 
+    var wishScrollTimer = null;
+
     function renderWishes() {
+      window.clearTimeout(wishScrollTimer);
       var wishes = readWishes();
       list.textContent = "";
       list.classList.remove("is-scrolling");
       if (!wishes.length) {
         var empty = document.createElement("p");
-        empty.className = "wish-empty";
+        empty.className = "wish-empty line";
         empty.textContent = book.empty;
         list.appendChild(empty);
+        replayWishesScene();
         return;
       }
+      var ordered = wishes.slice().reverse();
       var track = document.createElement("div");
       track.className = "wish-track";
-      var ordered = wishes.slice().reverse();
       ordered.forEach(function (wish) {
-        track.appendChild(wishCard(wish));
+        track.appendChild(wishCard(wish, true));
       });
-      // Duplicate for a seamless loop when there is enough content
-      if (ordered.length > 1) {
-        ordered.forEach(function (wish) {
-          var clone = wishCard(wish);
-          clone.setAttribute("aria-hidden", "true");
-          track.appendChild(clone);
-        });
-        list.classList.add("is-scrolling");
-      }
       list.appendChild(track);
-      var seconds = Math.max(12, ordered.length * 4);
-      track.style.setProperty("--wish-scroll-duration", seconds + "s");
+      replayWishesScene();
+      /* Auto-scroll after the top→bottom entrance finishes */
+      if (ordered.length > 1 && !reduce) {
+        var scene = invitation.querySelector("#wishes");
+        var count = scene ? sceneLineNodes(scene).length : ordered.length;
+        var delayMs = Math.round((0.12 + count * 0.22 + 1.45) * 1000);
+        wishScrollTimer = window.setTimeout(function () {
+          enableWishMarquee(ordered);
+        }, Math.max(2000, delayMs));
+      }
     }
 
-    function wishCard(wish) {
+    function enableWishMarquee(ordered) {
+      if (!list || !ordered || ordered.length < 2) return;
+      list.textContent = "";
+      list.classList.add("is-scrolling");
+      var track = document.createElement("div");
+      track.className = "wish-track";
+      function appendCard(wish, hidden) {
+        var card = wishCard(wish, false);
+        card.style.opacity = "1";
+        card.style.animation = "none";
+        if (hidden) card.setAttribute("aria-hidden", "true");
+        track.appendChild(card);
+      }
+      ordered.forEach(function (wish) { appendCard(wish, false); });
+      ordered.forEach(function (wish) { appendCard(wish, true); });
+      list.appendChild(track);
+      track.style.setProperty("--wish-scroll-duration", Math.max(14, ordered.length * 4) + "s");
+    }
+
+    function replayWishesScene() {
+      var scene = invitation.querySelector("#wishes");
+      if (!scene) return;
+      if (scene.classList.contains("is-in")) playSceneLines(scene);
+      else staggerSceneLines(scene);
+    }
+
+    function wishCard(wish, animateIn) {
       var item = document.createElement("article");
-      item.className = "wish";
+      item.className = animateIn ? "wish line" : "wish";
       var who = document.createElement("p");
       who.className = "wish-name";
       who.textContent = wish.name;
@@ -1798,6 +1884,35 @@
     return !!widgetId(path) || path === "countdown.box";
   }
 
+  function isPlaceLinkPath(path) {
+    return path === "venue.mapLabel" || path === "place.wazeLabel";
+  }
+
+  function fixCardCopy(wedding) {
+    var dirty = false;
+    wedding.opening = wedding.opening || {};
+    var cont = String(wedding.opening.continueLabel || "").trim();
+    if (!cont || /^click$/i.test(cont)) {
+      wedding.opening.continueLabel = "TERUSKAN";
+      dirty = true;
+    }
+    /* Keep Maps + Waze side by side — clear old drag offsets on those labels */
+    function clearXY(node) {
+      if (!node || typeof node !== "object") return;
+      if (Number(node.x) || Number(node.y)) {
+        node.x = "0";
+        node.y = "0";
+        dirty = true;
+      }
+    }
+    wedding.textStyle = wedding.textStyle || {};
+    wedding.textStyle.venue = wedding.textStyle.venue || {};
+    wedding.textStyle.place = wedding.textStyle.place || {};
+    clearXY(wedding.textStyle.venue.mapLabel);
+    clearXY(wedding.textStyle.place.wazeLabel);
+    return dirty;
+  }
+
   function resetBrokenPositions(wedding) {
     /* Cleanup old absolute offsets that break center / right align */
     try {
@@ -1854,8 +1969,14 @@
       var isBox = !!textBoxId(path);
       var isWidget = !!widgetId(path);
       var isCountdownBox = path === "countdown.box";
+      var isPlaceLink = isPlaceLinkPath(path);
       var layer = isLayerPath(path);
       var basePx = Number(spec.fontSizePx);
+      /* Maps / Waze stay in one row — never nudge with transforms */
+      if (isPlaceLink) {
+        x = 0;
+        y = 0;
+      }
       if (
         !layer &&
         size === 100 && spacing === 100 && letter === 100 &&
@@ -1894,7 +2015,7 @@
           el.style.fontStyle = font === "quote" ? "italic" : "";
         }
         if (color) el.style.color = color;
-        if (align) {
+        if (align && !isPlaceLink) {
           el.style.textAlign = align;
           /* Full width so center / right align inside the column, not a shrink-wrapped box */
           if (!layer) {
@@ -2309,7 +2430,12 @@
     var dy = point.y - fieldDrag.startY;
     var dist = Math.hypot(dx, dy);
     if (!fieldDrag.moved) {
-      if (!fieldDrag.ready || dist < 8) return;
+      if (!fieldDrag.ready || dist < 10) return;
+      /* Mostly vertical = page scroll, not text drag */
+      if (Math.abs(dy) > Math.abs(dx) * 1.2) {
+        endFieldDrag(false);
+        return;
+      }
       fieldDrag.moved = true;
       clearTimeout(fieldPressTimer);
       fieldPressTimer = null;

@@ -10,7 +10,6 @@ window.WEDDING = {
     "opening",
     "couple",
     "celebration",
-    "place",
     "closing"
   ],
   "date": {
@@ -35,7 +34,7 @@ window.WEDDING = {
     "nameTwo": "Syahmi",
     "amp": "&",
     "dateLine": "2.JANUARI.2027",
-    "continueLabel": "Teruskan"
+    "continueLabel": "TERUSKAN"
   },
   "couple": {
     "kicker": "Pengantin",
