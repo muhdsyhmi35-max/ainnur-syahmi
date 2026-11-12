@@ -53,7 +53,7 @@
     studio.hidden = false;
     /* Always reload preview with cache-bust so admin matches guest code */
     if (preview) {
-      preview.src = "../?preview=draft&v=edit25h&t=" + Date.now();
+      preview.src = "../?preview=draft&v=edit25i&t=" + Date.now();
     }
     buildForm(loadDraft());
     sendPreview(loadDraft());
@@ -278,7 +278,7 @@
     form.innerHTML =
       "<h1>Admin jemputan</h1>" +
       '<p class="admin-note">Teks, fon, warna, dan kedudukan: klik sekali pada teks dalam pratonton di kanan. Seret untuk alih. Guna Salin / Tampal kotak teks untuk pendua dalam seksyen yang sama.</p>' +
-      '<p class="admin-note">Simpan = kekal dalam pelayar ini. Halaman tetamu PC sama: <a href="../?v=edit25h" target="_blank" rel="noopener">buka jemputan</a> (Ctrl+Shift+R). Telefon: Muat turun content.js.</p>' +
+      '<p class="admin-note">Simpan = kekal dalam pelayar ini. Halaman tetamu PC sama: <a href="../?v=edit25i" target="_blank" rel="noopener">buka jemputan</a> (Ctrl+Shift+R). Telefon: Muat turun content.js.</p>' +
       '<p class="admin-note" id="save-note" hidden></p>' +
       block("Pautan peta", [
         field("Label Google Maps", "venue.mapLabel", readText(wedding, "venue.mapLabel")),
