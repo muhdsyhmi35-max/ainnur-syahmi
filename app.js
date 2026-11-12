@@ -1964,7 +1964,16 @@
     return dirty || true;
   }
 
+  function isPhoneLayout() {
+    try {
+      return window.matchMedia("(max-width: 720px), (pointer: coarse)").matches;
+    } catch (error) {
+      return false;
+    }
+  }
+
   function applyType(wedding) {
+    var phone = isPhoneLayout();
     document.querySelectorAll("[data-field]").forEach(function (el) {
       var path = el.getAttribute("data-field");
       if (!path) return;
@@ -1988,6 +1997,17 @@
       if (isPlaceLink) {
         x = 0;
         y = 0;
+      }
+      /*
+        Phone guests: drop desktop admin drag offsets.
+        Those x/y values were tuned on a tall desktop preview and create huge
+        gaps between every line when replayed inside 100svh mobile sections.
+      */
+      if (phone && !isBox && !isWidget) {
+        x = 0;
+        y = 0;
+        if (spacing > 110) spacing = 100;
+        if (letter > 120) letter = 100;
       }
       if (
         !layer &&
