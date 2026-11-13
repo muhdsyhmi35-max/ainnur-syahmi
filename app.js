@@ -1142,7 +1142,13 @@
     var field = document.getElementById("butterfly-field");
     if (!field || reduce) return;
     field.innerHTML = "";
-    var count = 10 + Math.floor(Math.random() * 5);
+    var mobile = false;
+    try {
+      mobile = window.matchMedia("(max-width: 720px), (pointer: coarse)").matches;
+    } catch (error) {
+      mobile = false;
+    }
+    var count = mobile ? 5 + Math.floor(Math.random() * 3) : 10 + Math.floor(Math.random() * 5);
     var i;
     for (i = 0; i < count; i += 1) {
       var bug = document.createElement("span");
@@ -1282,15 +1288,12 @@
     motionWatcher = new IntersectionObserver(function (entries) {
       entries.forEach(function (entry) {
         var scene = entry.target;
-        var visible = entry.isIntersecting && entry.intersectionRatio >= 0.28;
-        if (!visible) {
-          scene.classList.remove("is-in");
-          return;
-        }
-        if (scene.classList.contains("is-in")) return;
+        var visible = entry.isIntersecting && entry.intersectionRatio >= 0.22;
+        /* Keep is-in once played — replaying on every snap feels choppy on phones */
+        if (!visible || scene.classList.contains("is-in")) return;
         playSceneLines(scene);
       });
-    }, { threshold: [0, 0.28, 0.55, 0.85] });
+    }, { threshold: [0, 0.22, 0.45, 0.7], rootMargin: "0px 0px -8% 0px" });
     Array.prototype.forEach.call(scenes, function (scene) {
       if (!scene.classList.contains("scene-opening")) motionWatcher.observe(scene);
     });
@@ -1319,8 +1322,16 @@
       if (Math.abs(top) > 1) return top;
       return ar.left - br.left;
     });
+    var mobile = false;
+    try {
+      mobile = window.matchMedia("(max-width: 720px), (pointer: coarse)").matches;
+    } catch (error) {
+      mobile = false;
+    }
+    var step = mobile ? 0.09 : 0.22;
+    var start = mobile ? 0.06 : 0.12;
     lines.forEach(function (line, index) {
-      line.style.animationDelay = (0.12 + index * 0.22) + "s";
+      line.style.animationDelay = (start + index * step) + "s";
     });
     return lines;
   }

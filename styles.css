@@ -623,8 +623,14 @@ html.is-open .reveal:nth-child(6) { animation-delay: 0.96s; }
 html.is-open .reveal:nth-child(7) { animation-delay: 1.06s; }
 
 @keyframes rise {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from {
+    opacity: 0;
+    transform: translate3d(0, 10px, 0);
+  }
+  to {
+    opacity: 1;
+    transform: translate3d(0, 0, 0);
+  }
 }
 
 .section {
@@ -2246,7 +2252,7 @@ html.will-open.envelope-open:not(.is-open) .continue {
 }
 
 .scene.is-in .line {
-  animation: rise 1.35s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation: rise 1.15s cubic-bezier(0.22, 1, 0.36, 1) both;
 }
 
 /* Admin edit keeps the same top→bottom line animation as guest */
@@ -2498,8 +2504,60 @@ html.will-open.envelope-open:not(.is-open) .continue {
     );
   }
   .scene-petal-inner { animation: none; transform: rotate(var(--turn, -12deg)); }
-  .scene-petal { animation-duration: 26s; }
+  .scene-petal {
+    animation-duration: 28s;
+    animation-timing-function: linear;
+  }
   html.is-open .corners:not(.corners-photo):not(.corners-quiet) { animation: none; }
+
+  /* Native touch scroll + mandatory snap; CSS smooth-scroll fights the finger */
+  html {
+    scroll-behavior: auto;
+  }
+  .scene {
+    scroll-snap-stop: normal;
+  }
+  .butterfly {
+    filter: none;
+    width: 40px;
+    height: 36px;
+    margin: -18px 0 0 -20px;
+  }
+  .scene.is-in .line {
+    animation-duration: 0.95s;
+    animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
+  }
+  .scene.is-in .quiet-band,
+  .scene.is-in .quiet-corner,
+  .scene.is-in .quiet-sprig {
+    animation-duration: 0.85s;
+    animation-timing-function: cubic-bezier(0.25, 0.1, 0.25, 1);
+  }
+  .scene.is-in .quiet-band { animation-delay: 0.35s; }
+  .scene.is-in .quiet-tl { animation-delay: 0.4s; }
+  .scene.is-in .quiet-tr { animation-delay: 0.45s; }
+  .scene.is-in .quiet-bl { animation-delay: 0.5s; }
+  .scene.is-in .quiet-br { animation-delay: 0.55s; }
+  .scene.is-in .sprig-l1,
+  .scene.is-in .sprig-l5 { animation-delay: 0.48s; }
+  .scene.is-in .sprig-r1,
+  .scene.is-in .sprig-r5 { animation-delay: 0.52s; }
+  .scene.is-in .sprig-l2,
+  .scene.is-in .sprig-l3,
+  .scene.is-in .sprig-l4 { animation-delay: 0.58s; }
+  .scene.is-in .sprig-r2,
+  .scene.is-in .sprig-r3,
+  .scene.is-in .sprig-r4 { animation-delay: 0.62s; }
+  @keyframes rise {
+    from {
+      opacity: 0;
+      transform: translate3d(0, 6px, 0);
+    }
+    to {
+      opacity: 1;
+      transform: translate3d(0, 0, 0);
+    }
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
