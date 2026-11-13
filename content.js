@@ -86,7 +86,7 @@ window.WEDDING = {
   "place": {
     "heading": "Location",
     "wazeLabel": "Waze",
-    "wazeUrl": "https://www.waze.com/ms/live-map/directions/my/pahang/pekan/dewan-konvensyen-sultan-haji-ahmad-shah?to=place.ChIJQY_1HHFQzzERSc8NO5ZU1ZI",
+    "wazeUrl": "https://waze.com/ul?ll=3.4910868,103.3899894&navigate=yes&q=Dewan%20Banquet%20Majlis%20Perbandaran%20Pekan",
     "photoPlaceholder": "",
     "note": "",
     "photos": [],
@@ -301,7 +301,7 @@ window.WEDDING = {
         "spacing": "100",
         "letter": "100",
         "x": "0",
-        "y": "8",
+        "y": "-8",
         "font": "",
         "color": "",
         "align": ""
